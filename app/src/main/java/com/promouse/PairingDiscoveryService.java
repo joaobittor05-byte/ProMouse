@@ -39,15 +39,18 @@ public class PairingDiscoveryService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         updateNotification();
         if (!discoveryRunning) startDiscovery();
+        AdbWifiPairingEngine.tryStart(this);
         return START_NOT_STICKY;
     }
 
     private void startDiscovery() {
         if (nsdManager == null || discoveryRunning) return;
-        ActivationStore.setAdbWifiState(this,
-                ActivationStore.adbPairingCode(this).matches("\\d{6}")
-                        ? "Código recebido — procurando porta automaticamente"
-                        : "Procurando porta automaticamente");
+        if (!ActivationStore.isActive(this)) {
+            ActivationStore.setAdbWifiState(this,
+                    ActivationStore.adbPairingCode(this).matches("\\d{6}")
+                            ? "Código recebido — procurando porta automaticamente"
+                            : "Procurando porta automaticamente");
+        }
 
         discoveryListener = new NsdManager.DiscoveryListener() {
             @Override
@@ -67,7 +70,7 @@ public class PairingDiscoveryService extends Service {
             @Override
             public void onServiceLost(NsdServiceInfo serviceInfo) {
                 if (serviceInfo == null || resolvedServiceName == null) return;
-                if (resolvedServiceName.equals(serviceInfo.getServiceName())) {
+                if (resolvedServiceName.equals(serviceInfo.getServiceName()) && !ActivationStore.isActive(PairingDiscoveryService.this)) {
                     resolvedServiceName = null;
                     ActivationStore.clearAdbPairingEndpoint(PairingDiscoveryService.this);
                     ActivationStore.setAdbWifiState(PairingDiscoveryService.this,
@@ -85,7 +88,7 @@ public class PairingDiscoveryService extends Service {
             public void onStartDiscoveryFailed(String serviceType, int errorCode) {
                 discoveryRunning = false;
                 ActivationStore.setAdbWifiState(PairingDiscoveryService.this,
-                        "Não foi possível procurar a porta");
+                        "Não foi possível procurar a porta (NSD " + errorCode + ")");
                 updateNotification();
             }
 
@@ -127,6 +130,7 @@ public class PairingDiscoveryService extends Service {
                             host.getHostAddress(),
                             resolved.getPort());
                     updateNotification();
+                    AdbWifiPairingEngine.tryStart(PairingDiscoveryService.this);
                 }
             });
         } catch (Exception e) {
@@ -182,13 +186,16 @@ public class PairingDiscoveryService extends Service {
 
         int port = ActivationStore.adbPairingPort(this);
         String code = ActivationStore.adbPairingCode(this);
+        String state = ActivationStore.adbWifiState(this);
         String body;
-        if (port <= 0) {
+        if (state.startsWith("Pareando") || state.startsWith("Pareado") || state.startsWith("Falha")) {
+            body = state;
+        } else if (port <= 0) {
             body = "Abra 'Parear dispositivo com código'. Procurando a porta automaticamente...";
         } else if (!code.matches("\\d{6}")) {
             body = "Porta " + port + " detectada automaticamente. Digite apenas o código.";
         } else {
-            body = "Porta " + port + " e código recebidos. Aguardando handshake ADB.";
+            body = "Porta " + port + " e código recebidos. Iniciando pareamento ADB...";
         }
 
         return new Notification.Builder(this, ActivationActivity.CHANNEL_ID)

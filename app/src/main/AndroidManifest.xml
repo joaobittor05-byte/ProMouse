@@ -47,6 +47,17 @@
             android:exported="false" />
 
         <service
+            android:name=".ProMouseCoreService"
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the user-enabled ProMouse mapper session ready in memory while the app remains in the recent-apps/background session." />
+        </service>
+
+        <service
             android:name=".PairingDiscoveryService"
             android:enabled="true"
             android:exported="false"
@@ -60,10 +71,11 @@
             android:name=".OverlayService"
             android:enabled="true"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps the ProMouse mapper editor overlay available while the selected game is foreground." />
+                android:value="Shows and pauses the mapper editor overlay according to whether the selected game is foreground." />
         </service>
 
     </application>

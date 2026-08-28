@@ -26,8 +26,7 @@ public class PairingCodeReceiver extends BroadcastReceiver {
         }
 
         ActivationStore.setAdbPairingCode(context, code);
-        // O código e a porta ficam prontos para o cliente ADB real. Só o handshake
-        // confirmado pelo backend poderá marcar o ProMouse como ATIVO.
+        AdbWifiPairingEngine.tryStart(context);
         refresh(context);
     }
 

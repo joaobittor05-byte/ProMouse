@@ -42,10 +42,10 @@ public class MainActivity extends Activity {
 
         TextView title = text("ProMouse", 31, Color.WHITE, true);
         root.addView(title);
-        TextView subtitle = text("v1.0 Alpha • Keyboard/Mouse → Touch", 15, Color.rgb(130, 184, 235), false);
+        TextView subtitle = text("v1.0 Alpha • Keyboard → Touch", 15, Color.rgb(130, 184, 235), false);
         root.addView(subtitle, marginTop(4));
 
-        TextView intro = text("Primeira build revivida do mapeador. O serviço converte teclas e botões do mouse em gestos Android reais usando dispatchGesture().", 16, Color.rgb(205, 215, 229), false);
+        TextView intro = text("Primeira build revivida do mapeador. O serviço converte comandos do teclado em gestos Android reais usando dispatchGesture(). A camada dedicada de mouse será adicionada em seguida.", 16, Color.rgb(205, 215, 229), false);
         root.addView(intro, marginTop(20));
 
         accessibilityStatus = text("Acessibilidade: verificando…", 16, Color.WHITE, true);
@@ -75,7 +75,7 @@ public class MainActivity extends Activity {
 
         TextView mapTitle = text("MAPA PADRÃO DA BUILD", 14, Color.rgb(130, 184, 235), true);
         root.addView(mapTitle, marginTop(28));
-        TextView map = text("W/A/S/D = direção do analógico\nSPACE = pulo\nCTRL = agachar\nSHIFT = corrida\nMouse esquerdo = atirar\nMouse direito = mirar\n\nAs posições são proporcionais à tela. O próximo passo será o editor visual para arrastar cada comando exatamente para cima do HUD do jogo.", 15, Color.rgb(210, 218, 230), false);
+        TextView map = text("W/A/S/D = direção do analógico\nSPACE = pulo\nCTRL = agachar\nSHIFT = corrida\nF = atirar\nR = mirar\n\nAs posições são proporcionais à tela. O próximo passo será o editor visual para arrastar cada comando exatamente para cima do HUD do jogo e ligar os botões reais do mouse.", 15, Color.rgb(210, 218, 230), false);
         root.addView(map, marginTop(8));
 
         TextView note = text("Importante: o ProMouse não lê o conteúdo da tela. A acessibilidade é usada somente para receber teclas compatíveis e executar gestos.", 13, Color.rgb(145, 154, 170), false);

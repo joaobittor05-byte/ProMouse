@@ -1,19 +1,19 @@
 # ProMouse v1.0 Alpha
 
-Mapeador Android que converte teclado e botões do mouse em gestos de toque usando AccessibilityService/dispatchGesture.
+Mapeador Android que converte teclado em gestos de toque usando AccessibilityService/dispatchGesture.
 
 ## Build automático
 
 Todo push em `main` executa **Build ProMouse APK** no GitHub Actions e publica o artefato `ProMouse-APK` contendo `ProMouse-v1.0-alpha.apk`.
 
-## Mapeamento padrão
+## Mapeamento padrão desta Alpha
 
 - W/A/S/D: swipes no analógico virtual
 - Space: pulo
 - Ctrl: agachar
 - Shift: corrida
-- Mouse esquerdo: atirar
-- Mouse direito: mirar
+- F: atirar
+- R: mirar
 
 ## Ativação
 
@@ -22,4 +22,4 @@ Todo push em `main` executa **Build ProMouse APK** no GitHub Actions e publica o
 3. Autorize `Exibir sobre outros apps`.
 4. Inicie a bolha flutuante.
 
-Esta é a build Alpha inicial. O editor HUD, perfis por jogo, mapeamento configurável e movimento contínuo do mouse entram nas próximas versões.
+Esta é a build Alpha inicial. O editor HUD, perfis por jogo, mapeamento configurável, captura dedicada dos botões do mouse e movimento contínuo do mouse entram nas próximas versões.

@@ -23,7 +23,7 @@ public class MapperAccessibilityService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        // O ProMouse usa o serviço para gestos e teclas, não precisa ler conteúdo de tela.
+        // Não lemos conteúdo da tela; o serviço é usado para gestos e teclas.
     }
 
     @Override
@@ -67,9 +67,9 @@ public class MapperAccessibilityService extends AccessibilityService {
             case KeyEvent.KEYCODE_SHIFT_LEFT:
             case KeyEvent.KEYCODE_SHIFT_RIGHT:
                 return tap(w * 0.29f, h * 0.66f);
-            case KeyEvent.KEYCODE_BUTTON_PRIMARY:
+            case KeyEvent.KEYCODE_F:
                 return tap(w * 0.86f, h * 0.58f);
-            case KeyEvent.KEYCODE_BUTTON_SECONDARY:
+            case KeyEvent.KEYCODE_R:
                 return tap(w * 0.91f, h * 0.44f);
             default:
                 return false;

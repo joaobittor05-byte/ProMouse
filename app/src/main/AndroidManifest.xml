@@ -39,6 +39,10 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".PairingCodeReceiver"
+            android:exported="false" />
+
         <service
             android:name=".OverlayService"
             android:enabled="true"

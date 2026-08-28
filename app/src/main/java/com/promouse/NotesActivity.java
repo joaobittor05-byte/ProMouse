@@ -35,13 +35,16 @@ public class NotesActivity extends Activity {
         root.addView(text("Guia de ativação do ProMouse", 13, muted, false), topWrap(4));
 
         root.addView(section("ADB Wi-Fi",
-                "1. O aparelho precisa usar Android 11 ou superior para o fluxo padrão de Depuração sem fio.\n" +
-                "2. Ative Opções do desenvolvedor.\n" +
-                "3. Abra Depuração sem fio.\n" +
-                "4. Escolha Parear dispositivo com código de pareamento.\n" +
-                "5. Volte à notificação do ProMouse e conclua o pareamento.\n\n" +
+                "1. Toque em ☰ → Ativação → ADB Wi-Fi.\n" +
+                "2. O ProMouse abrirá Opções do desenvolvedor.\n" +
+                "3. Entre em Depuração sem fio e ative a função.\n" +
+                "4. Toque em Parear dispositivo com código de pareamento.\n" +
+                "5. O Android mostrará um código de 6 dígitos.\n" +
+                "6. Abra a notificação ProMouse — Pareamento ADB Wi-Fi.\n" +
+                "7. Toque em DIGITAR CÓDIGO, informe os 6 dígitos e envie.\n" +
+                "8. O ProMouse só será marcado como ativo depois que o backend ADB confirmar o vínculo.\n\n" +
                 "Xiaomi / Redmi / POCO / HyperOS:\n" +
-                "Configurações → Sobre o telefone/tablet → Informações detalhadas e especificações → toque várias vezes em Versão do OS/MIUI. Depois: Configurações → Configurações adicionais → Opções do desenvolvedor.\n\n" +
+                "Configurações → Sobre o telefone/tablet → Informações detalhadas e especificações → toque várias vezes em Versão do OS/MIUI. Depois: Configurações → Configurações adicionais → Opções do desenvolvedor → Depuração sem fio.\n\n" +
                 "Em aparelhos onde o caminho tiver outro nome, procure por 'Opções do desenvolvedor' e 'Depuração sem fio' dentro das Configurações."));
 
         root.addView(section("ROOT",
@@ -55,7 +58,7 @@ public class NotesActivity extends Activity {
         String pc = "adb shell am broadcast -a com.promouse.BSHELL_ACTIVATE --es code " + code + " -n com.promouse/.BShellReceiver";
         String brevent = "am broadcast -a com.promouse.BSHELL_ACTIVATE --es code " + code + " -n com.promouse/.BShellReceiver";
         LinearLayout bShell = section("BShell",
-                "Código atual: " + code + "\n\nPC: conecte o aparelho ao ADB e execute o comando abaixo.\n\nBrevent: use o comando sem o prefixo 'adb shell'.\n\nEsta primeira reconstrução usa o código como handshake de ativação. O backend privilegiado de injeção será ligado a essa sessão nas próximas etapas.");
+                "Código atual: " + code + "\n\nPC: conecte o aparelho ao ADB e execute o comando abaixo.\n\nBrevent: use o comando sem o prefixo 'adb shell'.\n\nEsta reconstrução usa o código como handshake de ativação. O backend privilegiado de injeção será ligado a essa sessão nas próximas etapas.");
         bShell.addView(command("PC", pc));
         bShell.addView(command("Brevent", brevent), topWrap(8));
         root.addView(bShell, topWrap(12));
@@ -74,7 +77,10 @@ public class NotesActivity extends Activity {
         cmd.setTextIsSelectable(true);
         box.addView(cmd, topWrap(5));
         Button copy = new Button(this);
-        copy.setText("Copiar"); copy.setAllCaps(false); copy.setTextColor(Color.WHITE); copy.setTextSize(12);
+        copy.setText("Copiar");
+        copy.setAllCaps(false);
+        copy.setTextColor(Color.WHITE);
+        copy.setTextSize(12);
         copy.setOnClickListener(v -> copy(value));
         box.addView(copy, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
         return box;
@@ -97,17 +103,30 @@ public class NotesActivity extends Activity {
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {
-        TextView t = new TextView(this); t.setText(value); t.setTextSize(sp); t.setTextColor(color); t.setGravity(Gravity.START);
-        if (bold) t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD); return t;
+        TextView t = new TextView(this);
+        t.setText(value);
+        t.setTextSize(sp);
+        t.setTextColor(color);
+        t.setGravity(Gravity.START);
+        if (bold) t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        return t;
     }
 
     private GradientDrawable round(int fill, int radius, int stroke) {
-        GradientDrawable d = new GradientDrawable(); d.setColor(fill); d.setCornerRadius(dp(radius)); d.setStroke(dp(1), stroke); return d;
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(fill);
+        d.setCornerRadius(dp(radius));
+        d.setStroke(dp(1), stroke);
+        return d;
     }
 
     private LinearLayout.LayoutParams topWrap(int value) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lp.topMargin = dp(value); return lp;
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(value);
+        return lp;
     }
 
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
 }

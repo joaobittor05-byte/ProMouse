@@ -53,7 +53,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Discovers the local Android wireless-debugging ADB pairing endpoint while the user is pairing ProMouse." />
+                android:value="Discovers the local Android wireless-debugging pairing service while the user performs ADB Wi-Fi activation." />
         </service>
 
         <service

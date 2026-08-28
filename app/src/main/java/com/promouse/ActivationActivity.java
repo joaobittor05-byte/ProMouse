@@ -2,11 +2,7 @@ package com.promouse;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.Notification;
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.app.RemoteInput;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -39,7 +35,6 @@ public class ActivationActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(buildUi());
         requestNotificationPermission();
-        createNotificationChannel();
     }
 
     @Override
@@ -76,9 +71,9 @@ public class ActivationActivity extends Activity {
         rootBtn.setOnClickListener(v -> requestRoot());
         shell.setOnClickListener(v -> showBShellCode());
         off.setOnClickListener(v -> {
+            stopService(new Intent(this, PairingDiscoveryService.class));
             ActivationStore.deactivate(this);
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            nm.cancel(PAIR_NOTIFICATION_ID);
+            getSystemService(NotificationManager.class).cancel(PAIR_NOTIFICATION_ID);
             updateState();
             Toast.makeText(this, "ProMouse desativado", Toast.LENGTH_SHORT).show();
         });
@@ -92,6 +87,8 @@ public class ActivationActivity extends Activity {
         String extra = "";
         if ("ADB Wi-Fi".equals(method) && !active) {
             extra = "\nPareamento: " + ActivationStore.adbWifiState(this);
+            int port = ActivationStore.adbPairingPort(this);
+            if (port > 0) extra += "\nPorta: " + port + " (automática)";
         }
         state.setText((active ? "● ATIVO" : "● DESATIVADO") + "\nMétodo: " + method + extra);
         state.setTextColor(active ? Color.rgb(102, 230, 149) : Color.rgb(235, 112, 112));
@@ -99,10 +96,13 @@ public class ActivationActivity extends Activity {
 
     private void startAdbWifiFlow() {
         ActivationStore.beginAdbWifi(this);
-        postPairingNotification();
+        Intent discovery = new Intent(this, PairingDiscoveryService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(discovery);
+        else startService(discovery);
         updateState();
+
         Toast.makeText(this,
-                "Em Opções do desenvolvedor, abra Depuração sem fio → Parear dispositivo com código de pareamento.",
+                "Abra Depuração sem fio → Parear dispositivo com código. A porta será detectada automaticamente.",
                 Toast.LENGTH_LONG).show();
         try {
             startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
@@ -112,6 +112,7 @@ public class ActivationActivity extends Activity {
     }
 
     private void requestRoot() {
+        stopService(new Intent(this, PairingDiscoveryService.class));
         state.setText("● VERIFICANDO ROOT...");
         new Thread(() -> {
             boolean ok = false;
@@ -147,60 +148,6 @@ public class ActivationActivity extends Activity {
                     Toast.makeText(this, "Novo código: " + next, Toast.LENGTH_LONG).show();
                 })
                 .show();
-    }
-
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            NotificationChannel c = new NotificationChannel(
-                    CHANNEL_ID,
-                    "Ativação ProMouse",
-                    NotificationManager.IMPORTANCE_HIGH);
-            c.setDescription("Pareamento ADB Wi-Fi e status de ativação do ProMouse");
-            nm.createNotificationChannel(c);
-        }
-    }
-
-    private void postPairingNotification() {
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        createNotificationChannel();
-
-        Intent open = new Intent(this, ActivationActivity.class);
-        PendingIntent openPi = PendingIntent.getActivity(
-                this,
-                33,
-                open,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-        Intent replyIntent = new Intent(this, PairingCodeReceiver.class);
-        int replyFlags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= 31) replyFlags |= PendingIntent.FLAG_MUTABLE;
-        PendingIntent replyPi = PendingIntent.getBroadcast(this, 34, replyIntent, replyFlags);
-
-        RemoteInput remoteInput = new RemoteInput.Builder(REMOTE_INPUT_PAIR_CODE)
-                .setLabel("Código de 6 dígitos")
-                .build();
-
-        Notification.Action pairAction = new Notification.Action.Builder(
-                android.R.drawable.ic_menu_send,
-                "DIGITAR CÓDIGO",
-                replyPi)
-                .addRemoteInput(remoteInput)
-                .build();
-
-        Notification.Builder builder = Build.VERSION.SDK_INT >= 26
-                ? new Notification.Builder(this, CHANNEL_ID)
-                : new Notification.Builder(this);
-
-        Notification n = builder
-                .setSmallIcon(android.R.drawable.stat_sys_upload)
-                .setContentTitle("ProMouse — Pareamento ADB Wi-Fi")
-                .setContentText("Abra Depuração sem fio → Parear dispositivo com código, depois responda aqui.")
-                .setContentIntent(openPi)
-                .setOngoing(true)
-                .addAction(pairAction)
-                .build();
-        nm.notify(PAIR_NOTIFICATION_ID, n);
     }
 
     private void requestNotificationPermission() {

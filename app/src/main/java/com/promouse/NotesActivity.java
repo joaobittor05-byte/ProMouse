@@ -36,16 +36,15 @@ public class NotesActivity extends Activity {
 
         root.addView(section("ADB Wi-Fi",
                 "1. Toque em ☰ → Ativação → ADB Wi-Fi.\n" +
-                "2. O ProMouse abrirá Opções do desenvolvedor.\n" +
-                "3. Entre em Depuração sem fio e ative a função.\n" +
+                "2. O ProMouse começa a procurar automaticamente a porta de pareamento.\n" +
+                "3. Em Opções do desenvolvedor, entre em Depuração sem fio.\n" +
                 "4. Toque em Parear dispositivo com código de pareamento.\n" +
-                "5. O Android mostrará um código de 6 dígitos.\n" +
-                "6. Abra a notificação ProMouse — Pareamento ADB Wi-Fi.\n" +
-                "7. Toque em DIGITAR CÓDIGO, informe os 6 dígitos e envie.\n" +
-                "8. O ProMouse só será marcado como ativo depois que o backend ADB confirmar o vínculo.\n\n" +
+                "5. Assim que essa janela abrir, o ProMouse detecta sozinho o IP e a porta anunciados pelo Android. Não digite a porta manualmente.\n" +
+                "6. O único dado manual é o código de 6 dígitos mostrado pelo Android.\n" +
+                "7. Abra a notificação ProMouse — ADB Wi-Fi, toque em DIGITAR CÓDIGO e envie os 6 dígitos.\n" +
+                "8. Depois, o backend ADB fará o handshake usando a porta detectada + o código. O mapper só será marcado como ATIVO após a confirmação real.\n\n" +
                 "Xiaomi / Redmi / POCO / HyperOS:\n" +
-                "Configurações → Sobre o telefone/tablet → Informações detalhadas e especificações → toque várias vezes em Versão do OS/MIUI. Depois: Configurações → Configurações adicionais → Opções do desenvolvedor → Depuração sem fio.\n\n" +
-                "Em aparelhos onde o caminho tiver outro nome, procure por 'Opções do desenvolvedor' e 'Depuração sem fio' dentro das Configurações."));
+                "Configurações → Sobre o telefone/tablet → Informações detalhadas e especificações → toque várias vezes em Versão do OS/MIUI. Depois: Configurações → Configurações adicionais → Opções do desenvolvedor → Depuração sem fio."));
 
         root.addView(section("ROOT",
                 "1. O dispositivo precisa possuir root funcional.\n" +
@@ -58,7 +57,7 @@ public class NotesActivity extends Activity {
         String pc = "adb shell am broadcast -a com.promouse.BSHELL_ACTIVATE --es code " + code + " -n com.promouse/.BShellReceiver";
         String brevent = "am broadcast -a com.promouse.BSHELL_ACTIVATE --es code " + code + " -n com.promouse/.BShellReceiver";
         LinearLayout bShell = section("BShell",
-                "Código atual: " + code + "\n\nPC: conecte o aparelho ao ADB e execute o comando abaixo.\n\nBrevent: use o comando sem o prefixo 'adb shell'.\n\nEsta reconstrução usa o código como handshake de ativação. O backend privilegiado de injeção será ligado a essa sessão nas próximas etapas.");
+                "Código atual: " + code + "\n\nPC: conecte o aparelho ao ADB e execute o comando abaixo.\n\nBrevent: use o comando sem o prefixo 'adb shell'.");
         bShell.addView(command("PC", pc));
         bShell.addView(command("Brevent", brevent), topWrap(8));
         root.addView(bShell, topWrap(12));

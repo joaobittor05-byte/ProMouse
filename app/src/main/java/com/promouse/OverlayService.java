@@ -1,9 +1,13 @@
 package com.promouse;
 
+import android.app.AppOpsManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.app.usage.UsageEvents;
+import android.app.usage.UsageStatsManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -13,6 +17,8 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Process;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -22,13 +28,9 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import io.github.muntashirakon.adb.AdbStream;
 
@@ -36,8 +38,8 @@ public class OverlayService extends Service {
     public static final String EXTRA_TARGET_PACKAGE = "target_package";
 
     private static final String PREF_EDITOR = "promouse_editor";
-    private static final Pattern PACKAGE_PATTERN = Pattern.compile("(?:^|\\s)([A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+)/");
-    private static final long FOREGROUND_CHECK_MS = 850L;
+    private static final long FOREGROUND_CHECK_MS = 1500L;
+    private static final long LAUNCH_GRACE_MS = 6000L;
 
     private WindowManager wm;
     private LinearLayout bubble;
@@ -46,11 +48,12 @@ public class OverlayService extends Service {
     private String targetPackage;
     private boolean gameForeground;
     private boolean monitorStarted;
-    private int detectionFailures;
+    private long targetLaunchAt;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService monitorExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean checkingForeground = new AtomicBoolean(false);
+    private final AtomicBoolean grantingUsageAccess = new AtomicBoolean(false);
 
     private final Runnable foregroundMonitor = new Runnable() {
         @Override
@@ -68,19 +71,27 @@ public class OverlayService extends Service {
 
             if (checkingForeground.compareAndSet(false, true)) {
                 monitorExecutor.execute(() -> {
-                    String foreground = detectForegroundPackage();
+                    boolean usageReady = hasUsageAccess();
+                    if (!usageReady) {
+                        tryGrantUsageAccessViaAdb();
+                        usageReady = hasUsageAccess();
+                    }
+                    String foreground = usageReady ? detectForegroundPackage() : null;
+                    final boolean reliable = usageReady;
                     checkingForeground.set(false);
+
                     mainHandler.post(() -> {
-                        if (foreground == null || foreground.isEmpty()) {
-                            detectionFailures++;
-                            if (detectionFailures >= 2 && gameForeground) {
-                                gameForeground = false;
-                                hideEditorSurfaces();
-                                updateNotification("Não foi possível confirmar o jogo — mapeamento pausado");
-                            }
-                        } else {
-                            detectionFailures = 0;
+                        if (reliable && foreground != null && !foreground.isEmpty()) {
                             applyForegroundPackage(foreground);
+                        } else if (!reliable) {
+                            // Never interfere with the game when foreground detection is unavailable.
+                            // During launch, keep the mapper visible; once Usage Access becomes available,
+                            // normal show/hide behavior resumes automatically.
+                            if (!gameForeground && SystemClock.elapsedRealtime() - targetLaunchAt >= 1200L) {
+                                gameForeground = true;
+                                showBubble();
+                                updateNotification("Mapeamento ativo — preparando detecção do jogo");
+                            }
                         }
                     });
                 });
@@ -107,6 +118,7 @@ public class OverlayService extends Service {
             String requested = intent.getStringExtra(EXTRA_TARGET_PACKAGE);
             if (requested != null && !requested.trim().isEmpty()) {
                 targetPackage = requested.trim();
+                targetLaunchAt = SystemClock.elapsedRealtime();
                 getSharedPreferences(PREF_EDITOR, MODE_PRIVATE).edit()
                         .putString("active_target", targetPackage)
                         .apply();
@@ -118,6 +130,7 @@ public class OverlayService extends Service {
         if (targetPackage == null || targetPackage.isEmpty()) {
             targetPackage = getSharedPreferences(PREF_EDITOR, MODE_PRIVATE)
                     .getString("active_target", "");
+            targetLaunchAt = SystemClock.elapsedRealtime();
         }
 
         startForegroundMonitor();
@@ -127,63 +140,83 @@ public class OverlayService extends Service {
     private void startForegroundMonitor() {
         if (monitorStarted) return;
         monitorStarted = true;
-        mainHandler.post(foregroundMonitor);
+        mainHandler.postDelayed(foregroundMonitor, 800L);
+    }
+
+    private boolean hasUsageAccess() {
+        try {
+            AppOpsManager appOps = (AppOpsManager) getSystemService(Context.APP_OPS_SERVICE);
+            int mode = appOps.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    getPackageName());
+            return mode == AppOpsManager.MODE_ALLOWED;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private void tryGrantUsageAccessViaAdb() {
+        if (!"ADB Wi-Fi".equals(ActivationStore.method(this))) return;
+        if (!grantingUsageAccess.compareAndSet(false, true)) return;
+        AdbStream stream = null;
+        try {
+            ProMouseAdbManager manager = ProMouseAdbManager.getInstance(this);
+            if (!manager.isConnected()) return;
+            stream = manager.openStream("shell:appops set " + getPackageName() + " GET_USAGE_STATS allow");
+        } catch (Throwable ignored) {
+        } finally {
+            try { if (stream != null) stream.close(); } catch (Throwable ignored) {}
+            grantingUsageAccess.set(false);
+        }
     }
 
     private String detectForegroundPackage() {
-        if (!"ADB Wi-Fi".equals(ActivationStore.method(this))) return null;
         try {
-            ProMouseAdbManager manager = ProMouseAdbManager.getInstance(this);
-            if (!manager.isConnected()) return null;
+            UsageStatsManager usm = (UsageStatsManager) getSystemService(Context.USAGE_STATS_SERVICE);
+            long end = System.currentTimeMillis();
+            long begin = end - 10_000L;
+            UsageEvents events = usm.queryEvents(begin, end);
+            UsageEvents.Event event = new UsageEvents.Event();
+            String latestPackage = null;
+            long latestTime = -1L;
 
-            String output = runAdbCommand(manager,
-                    "dumpsys activity activities | grep mResumedActivity | head -n 1");
-            String pkg = parsePackage(output);
-            if (pkg != null) return pkg;
-
-            output = runAdbCommand(manager,
-                    "dumpsys window windows | grep mCurrentFocus | head -n 1");
-            return parsePackage(output);
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event);
+                int type = event.getEventType();
+                if (type == UsageEvents.Event.MOVE_TO_FOREGROUND
+                        || (Build.VERSION.SDK_INT >= 29 && type == UsageEvents.Event.ACTIVITY_RESUMED)) {
+                    if (event.getTimeStamp() >= latestTime) {
+                        latestTime = event.getTimeStamp();
+                        latestPackage = event.getPackageName();
+                    }
+                }
+            }
+            return latestPackage;
         } catch (Throwable ignored) {
             return null;
         }
     }
 
-    private String runAdbCommand(ProMouseAdbManager manager, String command) throws Exception {
-        AdbStream stream = null;
-        BufferedReader reader = null;
-        try {
-            stream = manager.openStream("shell:" + command);
-            reader = new BufferedReader(new InputStreamReader(stream.openInputStream()));
-            StringBuilder out = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                out.append(line).append('\n');
-                if (out.length() > 4096) break;
-            }
-            return out.toString();
-        } finally {
-            try { if (reader != null) reader.close(); } catch (Exception ignored) {}
-            try { if (stream != null) stream.close(); } catch (Exception ignored) {}
-        }
-    }
-
-    private String parsePackage(String text) {
-        if (text == null) return null;
-        Matcher matcher = PACKAGE_PATTERN.matcher(text);
-        return matcher.find() ? matcher.group(1) : null;
-    }
-
     private void applyForegroundPackage(String foregroundPackage) {
-        boolean shouldBeActive = ActivationStore.isActive(this)
-                && targetPackage != null
-                && targetPackage.equals(foregroundPackage);
+        boolean targetIsForeground = targetPackage != null
+                && targetPackage.equals(foregroundPackage)
+                && ActivationStore.isActive(this);
 
-        if (shouldBeActive && !gameForeground) {
-            gameForeground = true;
-            showBubble();
+        if (targetIsForeground) {
+            if (!gameForeground) {
+                gameForeground = true;
+                showBubble();
+            }
             updateNotification("Mapeamento ativo dentro do jogo");
-        } else if (!shouldBeActive && gameForeground) {
+            return;
+        }
+
+        // Give the game time to finish its launch transition. This branch only hides
+        // ProMouse surfaces; it never stops, kills or changes the target application.
+        if (SystemClock.elapsedRealtime() - targetLaunchAt < LAUNCH_GRACE_MS) return;
+
+        if (gameForeground) {
             gameForeground = false;
             hideEditorSurfaces();
             updateNotification("Jogo em segundo plano — mapeamento pausado");
@@ -191,7 +224,7 @@ public class OverlayService extends Service {
     }
 
     private void showBubble() {
-        if (!gameForeground || bubble != null) return;
+        if (!gameForeground || bubble != null || wm == null) return;
 
         bubble = new LinearLayout(this);
         bubble.setGravity(Gravity.CENTER);
@@ -213,7 +246,14 @@ public class OverlayService extends Service {
         bubbleParams.x = prefs.getInt(positionKey("bubble_x"), dp(16));
         bubbleParams.y = prefs.getInt(positionKey("bubble_y"), dp(140));
         clampBubblePosition();
-        wm.addView(bubble, bubbleParams);
+
+        try {
+            wm.addView(bubble, bubbleParams);
+        } catch (Throwable e) {
+            bubble = null;
+            bubbleParams = null;
+            return;
+        }
 
         final float[] start = new float[4];
         bubble.setOnTouchListener((v, e) -> {
@@ -228,7 +268,8 @@ public class OverlayService extends Service {
                 bubbleParams.x = (int) (start[2] + e.getRawX() - start[0]);
                 bubbleParams.y = (int) (start[3] + e.getRawY() - start[1]);
                 clampBubblePosition();
-                if (bubble != null) wm.updateViewLayout(bubble, bubbleParams);
+                try { if (bubble != null) wm.updateViewLayout(bubble, bubbleParams); }
+                catch (Throwable ignored) {}
                 if (panel != null) closePanel();
                 return true;
             }
@@ -245,8 +286,8 @@ public class OverlayService extends Service {
     private void clampBubblePosition() {
         if (bubbleParams == null) return;
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        bubbleParams.x = Math.max(0, Math.min(bubbleParams.x, dm.widthPixels - dp(54)));
-        bubbleParams.y = Math.max(0, Math.min(bubbleParams.y, dm.heightPixels - dp(54)));
+        bubbleParams.x = Math.max(0, Math.min(bubbleParams.x, Math.max(0, dm.widthPixels - dp(54))));
+        bubbleParams.y = Math.max(0, Math.min(bubbleParams.y, Math.max(0, dm.heightPixels - dp(54))));
     }
 
     private void togglePanel() {
@@ -268,7 +309,8 @@ public class OverlayService extends Service {
         title.setTextSize(9);
         title.setGravity(Gravity.CENTER_VERTICAL);
         title.setPadding(dp(5), 0, 0, dp(4));
-        panel.addView(title, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(22)));
+        panel.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(22)));
 
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.HORIZONTAL);
@@ -276,7 +318,8 @@ public class OverlayService extends Service {
         tools.addView(tool("TOQUE"));
         tools.addView(tool("ANALÓGICO"));
         tools.addView(tool("⚙"));
-        panel.addView(tools, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        panel.addView(tools, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -284,21 +327,27 @@ public class OverlayService extends Service {
         Button exit = actionButton("SAIR", false);
         actions.addView(save);
         actions.addView(exit);
-        panel.addView(actions, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
+        panel.addView(actions, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
 
         save.setOnClickListener(v -> saveAndCloseEditor());
         exit.setOnClickListener(v -> closePanel());
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int panelWidth = Math.min(dp(388), Math.max(dp(280), dm.widthPixels - dp(16)));
+        int available = Math.max(dp(260), dm.widthPixels - dp(16));
+        int panelWidth = Math.min(dp(388), available);
         int panelHeight = dp(128);
         WindowManager.LayoutParams p = overlayParams(panelWidth, panelHeight);
         p.gravity = Gravity.TOP | Gravity.START;
-        p.x = Math.max(dp(8), Math.min(bubbleParams.x, dm.widthPixels - panelWidth - dp(8)));
+        p.x = Math.max(dp(8), Math.min(bubbleParams.x,
+                Math.max(dp(8), dm.widthPixels - panelWidth - dp(8))));
         int above = bubbleParams.y - panelHeight - dp(8);
         int below = bubbleParams.y + dp(62);
-        p.y = above >= dp(8) ? above : Math.min(below, dm.heightPixels - panelHeight - dp(8));
-        wm.addView(panel, p);
+        p.y = above >= dp(8)
+                ? above
+                : Math.max(dp(8), Math.min(below, dm.heightPixels - panelHeight - dp(8)));
+        try { wm.addView(panel, p); }
+        catch (Throwable ignored) { panel = null; }
     }
 
     private Button tool(String name) {
@@ -354,7 +403,7 @@ public class OverlayService extends Service {
 
     private void closePanel() {
         if (wm != null && panel != null) {
-            try { wm.removeView(panel); } catch (Exception ignored) {}
+            try { wm.removeView(panel); } catch (Throwable ignored) {}
         }
         panel = null;
     }
@@ -362,7 +411,7 @@ public class OverlayService extends Service {
     private void hideEditorSurfaces() {
         closePanel();
         if (wm != null && bubble != null) {
-            try { wm.removeView(bubble); } catch (Exception ignored) {}
+            try { wm.removeView(bubble); } catch (Throwable ignored) {}
         }
         bubble = null;
         bubbleParams = null;

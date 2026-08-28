@@ -1,23 +1,41 @@
 package com.promouse;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Color;
-import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+
 public class MainActivity extends Activity {
-    private TextView accessibilityStatus;
-    private TextView overlayStatus;
+    private LinearLayout gamesList;
+    private TextView statusValue;
+    private TextView methodValue;
+    private TextView mapperValue;
+
+    private final int bg = Color.rgb(8, 12, 19);
+    private final int card = Color.rgb(18, 25, 36);
+    private final int border = Color.rgb(42, 54, 72);
+    private final int blue = Color.rgb(72, 160, 255);
+    private final int muted = Color.rgb(145, 157, 177);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,102 +47,195 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refreshStatus();
+        renderGames();
     }
 
     private View buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(Color.rgb(9, 13, 20));
-
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(22), dp(24), dp(22), dp(36));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
+        root.setPadding(dp(20), dp(18), dp(20), dp(16));
+        root.setBackgroundColor(bg);
 
-        TextView title = text("ProMouse", 31, Color.WHITE, true);
-        root.addView(title);
-        TextView subtitle = text("v1.0 Alpha • Keyboard → Touch", 15, Color.rgb(130, 184, 235), false);
-        root.addView(subtitle, marginTop(4));
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("ProMouse", 29, Color.WHITE, true);
+        header.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1f));
+        Button menu = button("☰", false);
+        LinearLayout.LayoutParams menuLp = new LinearLayout.LayoutParams(dp(50), dp(48));
+        header.addView(menu, menuLp);
+        menu.setOnClickListener(v -> showMenu(menu));
+        root.addView(header);
 
-        TextView intro = text("Primeira build revivida do mapeador. O serviço converte comandos do teclado em gestos Android reais usando dispatchGesture(). A camada dedicada de mouse será adicionada em seguida.", 16, Color.rgb(205, 215, 229), false);
-        root.addView(intro, marginTop(20));
+        TextView subtitle = text("Mouse + teclado → Touch", 12, muted, false);
+        root.addView(subtitle, marginTop(0));
 
-        accessibilityStatus = text("Acessibilidade: verificando…", 16, Color.WHITE, true);
-        root.addView(accessibilityStatus, marginTop(24));
+        LinearLayout stats = new LinearLayout(this);
+        stats.setOrientation(LinearLayout.HORIZONTAL);
+        stats.setPadding(0, dp(13), 0, 0);
+        statusValue = stat(stats, "STATUS");
+        methodValue = stat(stats, "MÉTODO");
+        mapperValue = stat(stats, "MAPPER");
+        root.addView(stats);
 
-        Button accessibility = button("1. ATIVAR SERVIÇO DE MAPEAMENTO");
-        accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-        root.addView(accessibility, marginTop(10));
+        LinearLayout gamesHeader = new LinearLayout(this);
+        gamesHeader.setGravity(Gravity.CENTER_VERTICAL);
+        gamesHeader.setPadding(0, dp(22), 0, dp(10));
+        LinearLayout gameText = new LinearLayout(this);
+        gameText.setOrientation(LinearLayout.VERTICAL);
+        gameText.addView(text("Jogos", 20, Color.WHITE, true));
+        gameText.addView(text("Adicione qualquer jogo instalado", 12, muted, false));
+        gamesHeader.addView(gameText, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button add = button("+", true);
+        gamesHeader.addView(add, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        add.setOnClickListener(v -> showAppPicker());
+        root.addView(gamesHeader);
 
-        overlayStatus = text("Overlay: verificando…", 16, Color.WHITE, true);
-        root.addView(overlayStatus, marginTop(24));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        gamesList = new LinearLayout(this);
+        gamesList.setOrientation(LinearLayout.VERTICAL);
+        gamesList.setPadding(dp(10), dp(10), dp(10), dp(10));
+        gamesList.setBackground(round(card, 18, border));
+        scroll.addView(gamesList, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+        root.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        Button overlay = button("2. ATIVAR BOLHA FLUTUANTE");
-        overlay.setOnClickListener(v -> enableOverlay());
-        root.addView(overlay, marginTop(10));
-
-        Button stopOverlay = button("PARAR BOLHA");
-        stopOverlay.setOnClickListener(v -> {
-            stopService(new Intent(this, OverlayService.class));
-            Toast.makeText(this, "Bolha encerrada", Toast.LENGTH_SHORT).show();
-        });
-        root.addView(stopOverlay, marginTop(10));
-
-        Button test = button("TESTAR TOQUE NO CENTRO");
-        test.setOnClickListener(v -> testCenterTap());
-        root.addView(test, marginTop(18));
-
-        TextView mapTitle = text("MAPA PADRÃO DA BUILD", 14, Color.rgb(130, 184, 235), true);
-        root.addView(mapTitle, marginTop(28));
-        TextView map = text("W/A/S/D = direção do analógico\nSPACE = pulo\nCTRL = agachar\nSHIFT = corrida\nF = atirar\nR = mirar\n\nAs posições são proporcionais à tela. O próximo passo será o editor visual para arrastar cada comando exatamente para cima do HUD do jogo e ligar os botões reais do mouse.", 15, Color.rgb(210, 218, 230), false);
-        root.addView(map, marginTop(8));
-
-        TextView note = text("Importante: o ProMouse não lê o conteúdo da tela. A acessibilidade é usada somente para receber teclas compatíveis e executar gestos.", 13, Color.rgb(145, 154, 170), false);
-        root.addView(note, marginTop(24));
-
-        return scroll;
+        return root;
     }
 
-    private void enableOverlay() {
-        if (!Settings.canDrawOverlays(this)) {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-            return;
-        }
-        startService(new Intent(this, OverlayService.class));
-        overlayStatus.setText("Overlay: permitido • bolha iniciada");
-        Toast.makeText(this, "Bolha ProMouse iniciada", Toast.LENGTH_SHORT).show();
-    }
-
-    private void testCenterTap() {
-        MapperAccessibilityService service = MapperAccessibilityService.getInstance();
-        if (service == null) {
-            Toast.makeText(this, "Ative o serviço ProMouse em Acessibilidade", Toast.LENGTH_LONG).show();
-            return;
-        }
-        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        boolean sent = service.tap(dm.widthPixels * 0.5f, dm.heightPixels * 0.5f);
-        Toast.makeText(this, sent ? "Gesto enviado" : "Não foi possível enviar o gesto", Toast.LENGTH_SHORT).show();
+    private TextView stat(LinearLayout parent, String label) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(10), dp(8), dp(10), dp(8));
+        box.setBackground(round(card, 12, border));
+        TextView l = text(label, 9, muted, false);
+        TextView value = text("—", 12, Color.WHITE, true);
+        box.addView(l);
+        box.addView(value, marginTop(2));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(58), 1f);
+        lp.setMargins(dp(3), 0, dp(3), 0);
+        parent.addView(box, lp);
+        return value;
     }
 
     private void refreshStatus() {
-        boolean accessibilityOn = MapperAccessibilityService.getInstance() != null;
-        accessibilityStatus.setText(accessibilityOn ?
-                "Acessibilidade: ATIVA" : "Acessibilidade: desativada");
-        overlayStatus.setText(Settings.canDrawOverlays(this) ?
-                "Overlay: PERMITIDO" : "Overlay: sem permissão");
+        if (statusValue == null) return;
+        boolean active = ActivationStore.isActive(this);
+        statusValue.setText(active ? "Ativo" : "Desativado");
+        methodValue.setText(ActivationStore.method(this));
+        mapperValue.setText(active ? "Liberado" : "Bloqueado");
     }
 
-    private Button button(String label) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setTextSize(14);
-        b.setTextColor(Color.WHITE);
-        b.setAllCaps(false);
-        b.setGravity(Gravity.CENTER);
-        b.setBackgroundColor(Color.rgb(25, 103, 190));
-        b.setMinHeight(dp(50));
-        return b;
+    private void showMenu(View anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        popup.getMenu().add("Ativação");
+        popup.getMenu().add("Observações");
+        popup.setOnMenuItemClickListener(item -> {
+            if (item.getTitle().toString().startsWith("Ativação")) {
+                startActivity(new Intent(this, ActivationActivity.class));
+            } else {
+                startActivity(new Intent(this, NotesActivity.class));
+            }
+            return true;
+        });
+        popup.show();
+    }
+
+    private void renderGames() {
+        if (gamesList == null) return;
+        gamesList.removeAllViews();
+        List<String> packages = GameStore.list(this);
+        if (packages.isEmpty()) {
+            TextView empty = text("Nenhum jogo adicionado.\nUse + para escolher um aplicativo.", 14, muted, false);
+            empty.setGravity(Gravity.CENTER);
+            gamesList.addView(empty, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(190)));
+            return;
+        }
+
+        PackageManager pm = getPackageManager();
+        for (String pkg : packages) {
+            Intent launch = pm.getLaunchIntentForPackage(pkg);
+            if (launch == null) continue;
+            String name = pkg;
+            try { name = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString(); } catch (Exception ignored) {}
+            gamesList.addView(gameRow(name, pkg));
+        }
+    }
+
+    private View gameRow(String name, String pkg) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(8), dp(8), dp(8));
+        row.setBackground(round(Color.rgb(13, 19, 28), 13, border));
+
+        ImageView icon = new ImageView(this);
+        try { icon.setImageDrawable(getPackageManager().getApplicationIcon(pkg)); } catch (Exception ignored) {}
+        row.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        TextView label = text(name, 15, Color.WHITE, true);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        labelLp.setMargins(dp(12), 0, dp(8), 0);
+        label.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(label, labelLp);
+
+        Button open = button("ABRIR", false);
+        row.addView(open, new LinearLayout.LayoutParams(dp(82), dp(42)));
+        open.setOnClickListener(v -> openGame(pkg));
+        row.setOnLongClickListener(v -> {
+            new AlertDialog.Builder(this)
+                    .setTitle("Remover jogo")
+                    .setMessage("Remover " + name + " da lista do ProMouse?")
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Remover", (d, w) -> { GameStore.remove(this, pkg); renderGames(); })
+                    .show();
+            return true;
+        });
+
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setPadding(0, 0, 0, dp(8));
+        wrapper.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(64)));
+        return wrapper;
+    }
+
+    private void openGame(String pkg) {
+        if (!ActivationStore.isActive(this)) {
+            Toast.makeText(this, "Ative o ProMouse antes de iniciar o jogo.", Toast.LENGTH_SHORT).show();
+            startActivity(new Intent(this, ActivationActivity.class));
+            return;
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            Intent permission = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
+            startActivity(permission);
+            Toast.makeText(this, "Autorize o pop-up e toque em ABRIR novamente.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Intent service = new Intent(this, OverlayService.class);
+        startForegroundService(service);
+        Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
+        if (launch != null) startActivity(launch);
+    }
+
+    private void showAppPicker() {
+        PackageManager pm = getPackageManager();
+        Intent query = new Intent(Intent.ACTION_MAIN, null);
+        query.addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> apps = new ArrayList<>(pm.queryIntentActivities(query, 0));
+        Collections.sort(apps, Comparator.comparing(a -> a.loadLabel(pm).toString().toLowerCase()));
+
+        List<ResolveInfo> filtered = new ArrayList<>();
+        for (ResolveInfo info : apps) {
+            if (!info.activityInfo.packageName.equals(getPackageName())) filtered.add(info);
+        }
+        String[] labels = new String[filtered.size()];
+        for (int i = 0; i < filtered.size(); i++) labels[i] = filtered.get(i).loadLabel(pm).toString();
+
+        new AlertDialog.Builder(this)
+                .setTitle("Adicionar jogo")
+                .setItems(labels, (dialog, which) -> {
+                    GameStore.add(this, filtered.get(which).activityInfo.packageName);
+                    renderGames();
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {
@@ -132,14 +243,32 @@ public class MainActivity extends Activity {
         t.setText(value);
         t.setTextSize(sp);
         t.setTextColor(color);
-        t.setLineSpacing(0, 1.15f);
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        if (bold) t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
         return t;
     }
 
-    private LinearLayout.LayoutParams marginTop(int topDp) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(topDp);
+    private Button button(String label, boolean accent) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(label.equals("+") ? 24 : 12);
+        b.setAllCaps(false);
+        b.setPadding(0, 0, 0, 0);
+        b.setBackground(round(accent ? blue : card, 14, accent ? blue : border));
+        return b;
+    }
+
+    private GradientDrawable round(int fill, int radius, int stroke) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(fill);
+        d.setCornerRadius(dp(radius));
+        d.setStroke(dp(1), stroke);
+        return d;
+    }
+
+    private LinearLayout.LayoutParams marginTop(int dp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = this.dp(dp);
         return lp;
     }
 

@@ -1,25 +1,30 @@
-# ProMouse v1.0 Alpha
+# ProMouse — Rebuild v0.1
 
-Mapeador Android que converte teclado em gestos de toque usando AccessibilityService/dispatchGesture.
+Nova base do ProMouse. O projeto anterior baseado em AccessibilityService e mapeamento fixo foi removido.
 
-## Build automático
+## Direção do projeto
 
-Todo push em `main` executa **Build ProMouse APK** no GitHub Actions e publica o artefato `ProMouse-APK` contendo `ProMouse-v1.0-alpha.apk`.
+O ProMouse será um mapper configurável de mouse/teclado para touch. Nenhuma tecla ou posição de jogo vem pronta: o usuário adiciona o jogo e constrói o próprio mapa.
 
-## Mapeamento padrão desta Alpha
+### Tela principal
+- status compacto: Status / Método / Mapper
+- lista grande e rolável de jogos
+- botão + para adicionar qualquer app/jogo instalado
+- menu ☰ com Ativação e Observações
 
-- W/A/S/D: swipes no analógico virtual
-- Space: pulo
-- Ctrl: agachar
-- Shift: corrida
-- F: atirar
-- R: mirar
+### Ativação
+- ADB Wi-Fi: fluxo de preparação/pairing pela Depuração sem fio
+- ROOT: verificação real por `su -c id`
+- BShell: handshake por código com comandos separados para PC e Brevent
 
-## Ativação
+### Overlay do jogo
+Ao abrir um jogo com sessão ativa e permissão de overlay, o ProMouse mostra uma bolha PM arrastável. Ela abre o widget inicial com:
+- FPS
+- TOQUE
+- ANALÓGICO
+- Configurações
 
-1. Instale o APK.
-2. Abra ProMouse e ative `ProMouse Mapper` em Acessibilidade.
-3. Autorize `Exibir sobre outros apps`.
-4. Inicie a bolha flutuante.
+Nesta v0.1 o overlay e o sistema de ativação são a fundação visual/estrutural. O backend privilegiado de captura HID e injeção touch ADB/Root será conectado em etapas seguintes; não há AccessibilityService nesta base.
 
-Esta é a build Alpha inicial. O editor HUD, perfis por jogo, mapeamento configurável, captura dedicada dos botões do mouse e movimento contínuo do mouse entram nas próximas versões.
+## Build
+Todo push em `main` gera o artefato `ProMouse-APK` no GitHub Actions.

@@ -12,38 +12,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Gradle 8.7
-        uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
-
-      - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk ProMouse-v1.0-alpha.apk
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - run: gradle :app:assembleDebug --stacktrace
+      - run: cp app/build/outputs/apk/debug/app-debug.apk ProMouse-v0.1-rebuild.apk
+      - uses: actions/upload-artifact@v4
         with:
           name: ProMouse-APK
-          path: ProMouse-v1.0-alpha.apk
+          path: ProMouse-v0.1-rebuild.apk
           if-no-files-found: error
           retention-days: 30

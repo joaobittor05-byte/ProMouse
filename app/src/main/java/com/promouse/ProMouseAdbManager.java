@@ -5,8 +5,6 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Base64;
 
-import androidx.annotation.NonNull;
-
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -110,19 +108,16 @@ public final class ProMouseAdbManager extends AbsAdbConnectionManager {
                 .apply();
     }
 
-    @NonNull
     @Override
     protected PrivateKey getPrivateKey() {
         return privateKey;
     }
 
-    @NonNull
     @Override
     protected Certificate getCertificate() {
         return certificate;
     }
 
-    @NonNull
     @Override
     protected String getDeviceName() {
         return "ProMouse";

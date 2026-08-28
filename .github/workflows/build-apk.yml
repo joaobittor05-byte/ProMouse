@@ -24,10 +24,10 @@ jobs:
         with:
           gradle-version: '8.7'
       - run: gradle :app:assembleDebug --stacktrace
-      - run: cp app/build/outputs/apk/debug/app-debug.apk ProMouse-v0.4-ui-lifecycle.apk
+      - run: cp app/build/outputs/apk/debug/app-debug.apk ProMouse-v0.4.1-game-stability.apk
       - uses: actions/upload-artifact@v4
         with:
           name: ProMouse-APK
-          path: ProMouse-v0.4-ui-lifecycle.apk
+          path: ProMouse-v0.4.1-game-stability.apk
           if-no-files-found: error
           retention-days: 30

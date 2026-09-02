@@ -1,7 +1,9 @@
 package com.leo.optimazer;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.util.DisplayMetrics;
 
 import java.util.ArrayList;
@@ -17,7 +19,7 @@ public final class ProfileStore {
         public final String packageName;
         public final int width;
         public final int height;
-        /** DPI virtual do Leo (estilo mouse): 800 = padrão, 1600 = 2x, etc. */
+        /** DPI Virtual do Leo (estilo mouse): 800 = padrão, 1600 = 2x, etc. */
         public final int density;
         public final boolean restoreOnExit;
         public final boolean enabled;
@@ -42,9 +44,8 @@ public final class ProfileStore {
         DisplayMetrics metrics = context.getResources().getDisplayMetrics();
         int requestedVirtualDpi = profile.density;
 
-        // Compatibilidade com a tela/editor das builds anteriores: se o campo vier
-        // exatamente com a densidade Android atual, isso representa o padrão do aparelho.
-        // No novo modelo o padrão é mostrado como 800 DPI virtual.
+        // Migração simples das builds antigas: o antigo campo podia vir preenchido
+        // exatamente com a densidade Android do aparelho. No modelo novo, o padrão é 800.
         if (requestedVirtualDpi == metrics.densityDpi) {
             requestedVirtualDpi = PerAppCompat.VIRTUAL_DPI_BASE;
         }
@@ -59,6 +60,10 @@ public final class ProfileStore {
         String value = profile.width + "," + profile.height + "," + normalizedVirtualDpi + "," +
                 profile.restoreOnExit + "," + profile.enabled;
         prefs(context).edit().putString(PREFIX + profile.packageName, value).apply();
+
+        // A DPI é aplicada quando o app entra em primeiro plano. Portanto o monitor
+        // precisa existir mesmo quando a limpeza automática de RAM estiver desligada.
+        if (profile.enabled) ensureMonitor(context);
     }
 
     public static Profile get(Context context, String packageName) {
@@ -80,6 +85,14 @@ public final class ProfileStore {
         }
         Collections.sort(result, (a, b) -> a.packageName.compareToIgnoreCase(b.packageName));
         return result;
+    }
+
+    private static void ensureMonitor(Context context) {
+        try {
+            Intent intent = new Intent(context, MonitorService.class);
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent);
+            else context.startService(intent);
+        } catch (Throwable ignored) {}
     }
 
     private static Profile decode(String packageName, String raw) {

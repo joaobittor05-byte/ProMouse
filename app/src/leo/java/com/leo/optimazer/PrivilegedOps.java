@@ -1,11 +1,13 @@
 package com.leo.optimazer;
 
 import android.Manifest;
+import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.app.usage.UsageEvents;
 import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
@@ -42,8 +44,7 @@ public final class PrivilegedOps {
     }
 
     public boolean supports(String command) {
-        String op = command == null ? "" : command.trim().split("\\s+")[0].toUpperCase();
-        return !"KILL_CACHED".equals(op);
+        return true;
     }
 
     public String send(String raw) throws Exception {
@@ -60,21 +61,63 @@ public final class PrivilegedOps {
                 return exec("wm", "size");
             case "GET_DENSITY":
                 return exec("wm", "density");
-            case "SET_SIZE":
+            case "SET_SIZE": {
                 if (parts.length != 3) throw new IllegalArgumentException("SET_SIZE width height");
-                return exec("wm", "size", parts[1] + "x" + parts[2]);
-            case "SET_DENSITY":
+                int width = parseRange(parts[1], 320, 7680, "largura");
+                int height = parseRange(parts[2], 320, 7680, "altura");
+                return exec("wm", "size", width + "x" + height);
+            }
+            case "SET_DENSITY": {
                 if (parts.length != 2) throw new IllegalArgumentException("SET_DENSITY density");
-                return exec("wm", "density", parts[1]);
+                int density = parseRange(parts[1], 80, 4000, "DPI");
+                return exec("wm", "density", String.valueOf(density));
+            }
             case "RESET_SIZE":
                 return exec("wm", "size", "reset");
             case "RESET_DENSITY":
                 return exec("wm", "density", "reset");
             case "KILL_CACHED":
-                throw new UnsupportedOperationException("Limpeza global de RAM exige bridge shell ativo");
+                return cleanBackgroundApps();
             default:
                 throw new SecurityException("Operação não permitida: " + op);
         }
+    }
+
+    private int parseRange(String value, int min, int max, String name) {
+        int parsed = Integer.parseInt(value);
+        if (parsed < min || parsed > max) {
+            throw new IllegalArgumentException(name + " fora do limite " + min + "–" + max);
+        }
+        return parsed;
+    }
+
+    private String cleanBackgroundApps() {
+        ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        PackageManager packageManager = context.getPackageManager();
+        if (activityManager == null) return "requested=0";
+
+        String foreground = topPackage();
+        int requested = 0;
+        List<ApplicationInfo> apps = packageManager.getInstalledApplications(0);
+
+        for (ApplicationInfo info : apps) {
+            String pkg = info.packageName;
+            if (pkg.equals(context.getPackageName())) continue;
+            if (pkg.equals(foreground)) continue;
+            if (packageManager.getLaunchIntentForPackage(pkg) == null) continue;
+
+            boolean systemApp = (info.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+            boolean updatedSystemApp = (info.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+            if (systemApp && !updatedSystemApp) continue;
+
+            try {
+                activityManager.killBackgroundProcesses(pkg);
+                requested++;
+            } catch (Throwable ignored) {
+            }
+        }
+
+        return "requested=" + requested;
     }
 
     private String topPackage() {

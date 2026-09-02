@@ -1,5 +1,6 @@
 package com.leo.optimazer;
 
+import android.content.Context;
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
 import android.util.Base64;
@@ -11,10 +12,24 @@ import java.nio.charset.StandardCharsets;
 
 public final class BridgeClient {
     public static final String SOCKET_NAME = "leo_optimazer_bridge_v1";
+    private static volatile PrivilegedOps privilegedOps;
 
     private BridgeClient() {}
 
+    public static void initialize(Context context) {
+        privilegedOps = new PrivilegedOps(context);
+    }
+
     public static String send(String command) throws Exception {
+        PrivilegedOps local = privilegedOps;
+        if (local != null && local.isActivated() && local.supports(command)) {
+            return local.send(command);
+        }
+
+        return sendToShellBridge(command);
+    }
+
+    private static String sendToShellBridge(String command) throws Exception {
         LocalSocket socket = new LocalSocket();
         socket.connect(new LocalSocketAddress(SOCKET_NAME, LocalSocketAddress.Namespace.ABSTRACT));
         socket.setSoTimeout(5000);
@@ -42,11 +57,22 @@ public final class BridgeClient {
     }
 
     public static boolean isAlive() {
+        PrivilegedOps local = privilegedOps;
+        if (local != null && local.isActivated()) return true;
         try {
-            return "pong".equals(send("PING").trim());
+            return "pong".equals(sendToShellBridge("PING").trim());
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    public static boolean isBreventModeActive() {
+        PrivilegedOps local = privilegedOps;
+        return local != null && local.isActivated();
+    }
+
+    public static String activationCommandForBrevent() {
+        return PrivilegedOps.breventActivationCommand();
     }
 
     public static String activationCommandForWindowsCmd() {

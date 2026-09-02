@@ -6,6 +6,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -26,16 +28,25 @@ public class ActivationActivity extends Activity {
     private static final int BAD = Color.rgb(255, 112, 112);
     private static final int WARN = Color.rgb(255, 193, 92);
 
+    private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView managerStatus;
     private TextView serverStatus;
     private TextView permissionStatus;
     private TextView coreStatus;
+    private TextView diagnosticStatus;
     private Button continueButton;
+
+    private final Runnable refreshLoop = new Runnable() {
+        @Override public void run() {
+            refreshStatus();
+            if (!isFinishing()) handler.postDelayed(this, 700L);
+        }
+    };
 
     private final Shizuku.OnRequestPermissionResultListener permissionListener = (requestCode, grantResult) -> {
         if (requestCode != ShizukuCore.REQUEST_CODE) return;
         if (grantResult == PackageManager.PERMISSION_GRANTED) {
-            ShizukuCore.bindUserService();
+            ShizukuCore.retryBind();
             Toast.makeText(this, "Permissão do Shizuku concedida", Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(this, "Permissão do Shizuku negada", Toast.LENGTH_LONG).show();
@@ -54,12 +65,20 @@ public class ActivationActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        refreshStatus();
         if (ShizukuCore.hasPermission()) ShizukuCore.bindUserService();
+        handler.removeCallbacks(refreshLoop);
+        handler.post(refreshLoop);
+    }
+
+    @Override
+    protected void onPause() {
+        handler.removeCallbacks(refreshLoop);
+        super.onPause();
     }
 
     @Override
     protected void onDestroy() {
+        handler.removeCallbacks(refreshLoop);
         Shizuku.removeRequestPermissionResultListener(permissionListener);
         super.onDestroy();
     }
@@ -84,17 +103,20 @@ public class ActivationActivity extends Activity {
         serverStatus = text("● Serviço: verificando…", 15, TEXT, true);
         permissionStatus = text("● Permissão: verificando…", 15, TEXT, true);
         coreStatus = text("● Núcleo Leo: verificando…", 15, TEXT, true);
+        diagnosticStatus = text("Diagnóstico: aguardando…", 12, MUTED, false);
         serverStatus.setPadding(0, dp(9), 0, 0);
         permissionStatus.setPadding(0, dp(9), 0, 0);
         coreStatus.setPadding(0, dp(9), 0, 0);
+        diagnosticStatus.setPadding(0, dp(9), 0, 0);
         card.addView(managerStatus);
         card.addView(serverStatus);
         card.addView(permissionStatus);
         card.addView(coreStatus);
+        card.addView(diagnosticStatus);
 
         TextView explanation = text(
-                "O Shizuku é agora o núcleo principal do Leo Optimazer. Quando ele estiver iniciado, o Leo recebe autorização uma vez e usa um UserService privilegiado para executar limpeza de RAM e perfis individuais silenciosamente.\n\n" +
-                "Sem root, o Shizuku precisa ser iniciado novamente depois que o celular reiniciar. Com root/Sui, o núcleo pode iniciar com privilégios root.",
+                "O Shizuku entrega um Binder ao Leo por meio do ShizukuProvider. Com a autorização concedida, o Leo inicia um UserService privilegiado próprio para RAM e perfis individuais.\n\n" +
+                "Sem root, o Shizuku precisa ser iniciado novamente depois que o celular reiniciar.",
                 13, MUTED, false
         );
         explanation.setPadding(0, dp(18), 0, dp(14));
@@ -104,7 +126,7 @@ public class ActivationActivity extends Activity {
         card.addView(spacer(9));
         card.addView(button("SOLICITAR PERMISSÃO AO SHIZUKU", v -> requestShizukuPermission()));
         card.addView(spacer(9));
-        card.addView(button("CONECTAR NÚCLEO LEO", v -> connectCore()));
+        card.addView(button("CONECTAR / TENTAR NOVAMENTE", v -> connectCore()));
         card.addView(spacer(9));
         card.addView(button("VERIFICAR ESTADO", v -> refreshStatus()));
         root.addView(card);
@@ -115,7 +137,7 @@ public class ActivationActivity extends Activity {
         root.addView(continueButton, continueLp);
 
         TextView note = text(
-                "Brevent permanece apenas como alternativa de emergência. As funções automáticas desta versão usam o Shizuku.",
+                "O botão Entrar só é liberado quando o servidor Shizuku, a permissão e o UserService do Leo estiverem conectados.",
                 12, MUTED, false
         );
         note.setPadding(0, dp(16), 0, 0);
@@ -143,13 +165,25 @@ public class ActivationActivity extends Activity {
             int uid = ShizukuCore.getServiceUid();
             coreStatus.setText(uid == 0 ? "● NÚCLEO LEO ATIVO • ROOT" : "● NÚCLEO LEO ATIVO • SHELL");
             coreStatus.setTextColor(GOOD);
+            diagnosticStatus.setText("Diagnóstico: conexão Binder + UserService OK");
+            diagnosticStatus.setTextColor(GOOD);
+        } else if (permission && alive) {
+            boolean connecting = ShizukuCore.isBinding();
+            String error = ShizukuCore.getLastBindError();
+            coreStatus.setText(connecting ? "● NÚCLEO LEO CONECTANDO…" : "● NÚCLEO LEO NÃO CONECTADO");
+            coreStatus.setTextColor(connecting ? WARN : BAD);
+            diagnosticStatus.setText(error.isEmpty() ? "Diagnóstico: aguardando UserService" : "Diagnóstico: " + error);
+            diagnosticStatus.setTextColor(error.isEmpty() ? WARN : BAD);
         } else {
-            coreStatus.setText(permission ? "● NÚCLEO LEO CONECTANDO…" : "● NÚCLEO LEO AGUARDANDO AUTORIZAÇÃO");
-            coreStatus.setTextColor(permission ? WARN : BAD);
+            coreStatus.setText("● NÚCLEO LEO AGUARDANDO SHIZUKU");
+            coreStatus.setTextColor(BAD);
+            String error = ShizukuCore.getLastBindError();
+            diagnosticStatus.setText(error.isEmpty() ? "Diagnóstico: —" : "Diagnóstico: " + error);
+            diagnosticStatus.setTextColor(error.isEmpty() ? MUTED : BAD);
         }
 
-        continueButton.setEnabled(permission && alive);
-        continueButton.setAlpha((permission && alive) ? 1f : 0.45f);
+        continueButton.setEnabled(ready);
+        continueButton.setAlpha(ready ? 1f : 0.45f);
     }
 
     private void openShizuku() {
@@ -166,8 +200,8 @@ public class ActivationActivity extends Activity {
         try {
             ShizukuCore.requestPermission();
             if (ShizukuCore.hasPermission()) {
-                ShizukuCore.bindUserService();
-                Toast.makeText(this, "Permissão já concedida", Toast.LENGTH_SHORT).show();
+                ShizukuCore.retryBind();
+                Toast.makeText(this, "Permissão já concedida • conectando núcleo", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Toast.makeText(this, e.getMessage() == null ? "Shizuku não está ativo" : e.getMessage(), Toast.LENGTH_LONG).show();
@@ -176,22 +210,26 @@ public class ActivationActivity extends Activity {
     }
 
     private void connectCore() {
+        if (!ShizukuCore.isBinderAlive()) {
+            Toast.makeText(this, "O servidor do Shizuku não foi encontrado", Toast.LENGTH_LONG).show();
+            refreshStatus();
+            return;
+        }
         if (!ShizukuCore.hasPermission()) {
             requestShizukuPermission();
             return;
         }
-        ShizukuCore.bindUserService();
-        Toast.makeText(this, "Conectando núcleo Shizuku…", Toast.LENGTH_SHORT).show();
+        ShizukuCore.retryBind();
+        Toast.makeText(this, "Nova tentativa de conexão iniciada", Toast.LENGTH_SHORT).show();
         refreshStatus();
     }
 
     private void openMain() {
-        if (!ShizukuCore.hasPermission() || !ShizukuCore.isBinderAlive()) {
-            Toast.makeText(this, "Inicie e autorize o Shizuku primeiro", Toast.LENGTH_LONG).show();
+        if (!ShizukuCore.isReady()) {
+            Toast.makeText(this, "Conecte o núcleo Shizuku primeiro", Toast.LENGTH_LONG).show();
             refreshStatus();
             return;
         }
-        ShizukuCore.bindUserService();
         startActivity(new Intent(this, MainActivity.class));
     }
 

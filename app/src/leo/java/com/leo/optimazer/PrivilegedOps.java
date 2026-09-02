@@ -8,7 +8,6 @@ import android.app.usage.UsageStatsManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import android.os.Process;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -36,7 +35,7 @@ public final class PrivilegedOps {
         if (appOps == null) return false;
         int mode = appOps.checkOpNoThrow(
                 AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
+                android.os.Process.myUid(),
                 context.getPackageName()
         );
         return mode == AppOpsManager.MODE_ALLOWED;
@@ -119,7 +118,7 @@ public final class PrivilegedOps {
     }
 
     private String exec(String... command) throws Exception {
-        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        java.lang.Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         try (InputStream in = process.getInputStream()) {
             byte[] chunk = new byte[4096];
@@ -133,6 +132,6 @@ public final class PrivilegedOps {
     }
 
     public static String breventActivationCommand() {
-        return "pm grant com.leo.optimazer android.permission.WRITE_SECURE_SETTINGS; appops set com.leo.optimazer GET_USAGE_STATS allow";
+        return "pm grant com.leo.optimazer android.permission.WRITE_SECURE_SETTINGS";
     }
 }

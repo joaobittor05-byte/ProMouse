@@ -1,7 +1,7 @@
 package com.leo.optimazer;
 
 interface ILeoShell {
-    String execute(String command);
-    int getServiceUid();
-    void destroy();
+    void destroy() = 16777114;
+    String execute(String command) = 1;
+    int getServiceUid() = 2;
 }

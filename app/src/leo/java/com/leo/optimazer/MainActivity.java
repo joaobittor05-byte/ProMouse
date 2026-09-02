@@ -12,7 +12,9 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
@@ -52,6 +54,7 @@ public class MainActivity extends Activity {
         buildUi();
         requestNotificationPermission();
         ShizukuCore.bindUserService();
+        ensureProfileMonitor();
         refreshAll();
     }
 
@@ -59,6 +62,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         ShizukuCore.bindUserService();
+        ensureProfileMonitor();
         refreshAll();
     }
 
@@ -73,7 +77,7 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         root.addView(text("LEO OPTIMAZER", 27, TEXT, true));
-        TextView subtitle = text("Shizuku Core • perfis individuais + RAM automática", 14, MUTED, false);
+        TextView subtitle = text("Shizuku Core • resolução + DPI Virtual independentes por app", 14, MUTED, false);
         subtitle.setPadding(0, dp(2), 0, dp(18));
         root.addView(subtitle);
 
@@ -84,7 +88,9 @@ public class MainActivity extends Activity {
         statusCard.addView(button("VERIFICAR SHIZUKU", v -> refreshActivationStatus()));
         statusCard.addView(spacer(8));
         statusCard.addView(button("GERENCIAR SHIZUKU", v -> startActivity(new Intent(this, ActivationActivity.class))));
-        TextView hint = text("O Leo não usa wm size/wm density global. Os perfis usam a escala de compatibilidade do Android por pacote e são aplicados silenciosamente pelo UserService do Shizuku.", 12, MUTED, false);
+        TextView hint = text(
+                "A resolução é salva por pacote. A DPI Virtual é uma segunda camada aplicada somente à tarefa do aplicativo que está em primeiro plano. O Leo não usa wm size/wm density global.",
+                12, MUTED, false);
         hint.setPadding(0, dp(10), 0, 0);
         statusCard.addView(hint);
         root.addView(statusCard);
@@ -94,18 +100,18 @@ public class MainActivity extends Activity {
         ramInfo = text("RAM: —", 15, TEXT, true);
         ramCard.addView(ramInfo);
         ramCard.addView(spacer(10));
-        ramCard.addView(text("A limpeza usa am kill-all dentro do núcleo Shizuku (UID shell/root). Não precisa abrir o Brevent nem confirmar a cada execução.", 12, MUTED, false));
+        ramCard.addView(text("A limpeza usa am kill-all dentro do núcleo Shizuku. Desligar a RAM automática não desliga os perfis por aplicativo.", 12, MUTED, false));
         ramCard.addView(spacer(10));
         ramCard.addView(text("Intervalo em segundos (0 = desligado, mínimo 10s)", 12, MUTED, false));
         intervalInput = editText("0");
         intervalInput.setInputType(InputType.TYPE_CLASS_NUMBER);
         ramCard.addView(intervalInput, matchWrap());
         ramCard.addView(spacer(8));
-        ramCard.addView(button("SALVAR INTERVALO E INICIAR", v -> saveIntervalAndStart()));
+        ramCard.addView(button("SALVAR INTERVALO", v -> saveIntervalAndStart()));
         ramCard.addView(spacer(8));
         ramCard.addView(button("LIMPAR RAM AGORA", v -> cleanRamNow()));
         ramCard.addView(spacer(8));
-        ramCard.addView(button("PARAR LIMPEZA AUTOMÁTICA", v -> stopOptimizer()));
+        ramCard.addView(button("DESLIGAR RAM AUTOMÁTICA", v -> stopOptimizer()));
         root.addView(ramCard);
 
         root.addView(sectionTitle("PERFIS INDIVIDUAIS"));
@@ -118,7 +124,7 @@ public class MainActivity extends Activity {
         root.addView(profilesContainer, matchWrap());
 
         TextView safety = text(
-                "Cada perfil é gravado para o pacote selecionado. O Android aplica resolução lógica e densidade pela escala individual mais próxima suportada; resolução e DPI não são dois controles totalmente independentes no modo compat. O restante do sistema permanece no padrão.",
+                "Regra dos perfis: resolução e DPI Virtual são independentes. Mudar a DPI não troca a resolução salva. Só o app em primeiro plano recebe a DPI; ao trocar de aplicativo, a tarefa anterior é restaurada e o perfil continua salvo.",
                 12, MUTED, false
         );
         safety.setPadding(0, dp(16), 0, 0);
@@ -167,6 +173,14 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private void ensureProfileMonitor() {
+        if (ProfileStore.all(this).isEmpty()) return;
+        try {
+            Intent intent = new Intent(this, MonitorService.class);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
+        } catch (Throwable ignored) {}
+    }
+
     private void saveIntervalAndStart() {
         try {
             long sec = Long.parseLong(intervalInput.getText().toString().trim());
@@ -180,8 +194,8 @@ public class MainActivity extends Activity {
                     .apply();
 
             if (sec == 0L) {
-                stopOptimizer();
-                Toast.makeText(this, "Limpeza automática desativada", Toast.LENGTH_SHORT).show();
+                ensureProfileMonitor();
+                Toast.makeText(this, "RAM automática desligada • perfis continuam ativos", Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -195,8 +209,16 @@ public class MainActivity extends Activity {
     }
 
     private void stopOptimizer() {
-        stopService(new Intent(this, MonitorService.class));
-        Toast.makeText(this, "Limpeza automática parada", Toast.LENGTH_SHORT).show();
+        getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
+                .putLong(MonitorService.KEY_INTERVAL_SEC, 0L)
+                .apply();
+        intervalInput.setText("0");
+        if (ProfileStore.all(this).isEmpty()) {
+            stopService(new Intent(this, MonitorService.class));
+        } else {
+            ensureProfileMonitor();
+        }
+        Toast.makeText(this, "RAM automática desligada • monitor de perfis mantido", Toast.LENGTH_SHORT).show();
     }
 
     private void cleanRamNow() {
@@ -230,8 +252,9 @@ public class MainActivity extends Activity {
         long lastFreed = prefs.getLong(MonitorService.KEY_LAST_FREED_MB, 0L);
         long last = prefs.getLong(MonitorService.KEY_LAST_CLEANUP, 0L);
         String result = prefs.getString(MonitorService.KEY_LAST_CLEANUP_RESULT, "—");
+        String profileResult = prefs.getString(MonitorService.KEY_LAST_PROFILE_RESULT, "aguardando app com perfil");
         String lastText = last == 0 ? "ainda não executada" : android.text.format.DateFormat.format("HH:mm:ss", last).toString();
-        ramInfo.setText("Disponível: " + available + " MB\nÚltima limpeza: " + lastText + " • Δ +" + lastFreed + " MB\nEstado: " + result);
+        ramInfo.setText("Disponível: " + available + " MB\nÚltima limpeza: " + lastText + " • Δ +" + lastFreed + " MB\nRAM: " + result + "\nPerfil: " + profileResult);
     }
 
     private long availableMemoryMb() {
@@ -278,21 +301,38 @@ public class MainActivity extends Activity {
         EditText height = editText(String.valueOf(existing == null ? dm.heightPixels : existing.height));
         height.setHint("Altura");
         height.setInputType(InputType.TYPE_CLASS_NUMBER);
-        EditText density = editText(String.valueOf(existing == null ? dm.densityDpi : existing.density));
-        density.setHint("DPI");
+        EditText density = editText(String.valueOf(existing == null ? PerAppCompat.VIRTUAL_DPI_BASE : existing.density));
+        density.setHint("DPI Virtual");
         density.setInputType(InputType.TYPE_CLASS_NUMBER);
         CheckBox enabled = new CheckBox(this);
         enabled.setText("Perfil individual ativado");
         enabled.setTextColor(TEXT);
         enabled.setChecked(existing == null || existing.enabled);
 
-        form.addView(label("Resolução alvo — largura"));
+        TextView dpiHint = text("Calculando faixa da DPI…", 12, ACCENT, true);
+        dpiHint.setPadding(0, dp(8), 0, dp(4));
+
+        form.addView(label("Resolução do aplicativo — largura"));
         form.addView(width);
-        form.addView(label("Resolução alvo — altura"));
+        form.addView(label("Resolução do aplicativo — altura"));
         form.addView(height);
-        form.addView(label("DPI alvo — o Android usa a escala individual compatível mais próxima"));
+        form.addView(label("DPI Virtual — lógica de mouse (800 = padrão; quanto maior, maior a DPI Virtual)"));
         form.addView(density);
+        form.addView(dpiHint);
+        form.addView(text("A DPI Virtual muda somente a densidade da tarefa do app. Ela não altera a resolução acima.", 11, MUTED, false));
         form.addView(enabled);
+
+        TextWatcher watcher = new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateDpiHint(width, height, density, dpiHint, dm, packageName);
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        };
+        width.addTextChangedListener(watcher);
+        height.addTextChangedListener(watcher);
+        density.addTextChangedListener(watcher);
+        updateDpiHint(width, height, density, dpiHint, dm, packageName);
 
         new AlertDialog.Builder(this)
                 .setTitle(packageName)
@@ -302,17 +342,36 @@ public class MainActivity extends Activity {
                         int w = Integer.parseInt(width.getText().toString().trim());
                         int h = Integer.parseInt(height.getText().toString().trim());
                         int d = Integer.parseInt(density.getText().toString().trim());
-                        if (w < 320 || w > 7680 || h < 320 || h > 7680 || d < 80 || d > 4000) {
+                        if (w < 320 || w > 7680 || h < 320 || h > 7680 || d < 200 || d > 6400) {
                             throw new IllegalArgumentException();
                         }
                         ProfileStore.Profile profile = new ProfileStore.Profile(packageName, w, h, d, true, enabled.isChecked());
                         applyAndSaveProfile(profile);
                     } catch (Exception e) {
-                        Toast.makeText(this, "Use resolução 320–7680 e DPI 80–4000", Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, "Use resolução 320–7680 e DPI Virtual 200–6400. O Leo limita depois pela resolução escolhida.", Toast.LENGTH_LONG).show();
                     }
                 })
                 .setNegativeButton("Cancelar", null)
                 .show();
+    }
+
+    private void updateDpiHint(EditText width, EditText height, EditText density,
+                               TextView output, DisplayMetrics metrics, String packageName) {
+        try {
+            int w = Integer.parseInt(width.getText().toString().trim());
+            int h = Integer.parseInt(height.getText().toString().trim());
+            int requested = Integer.parseInt(density.getText().toString().trim());
+            PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(w, h, metrics);
+            int normalized = limits.clamp(requested);
+            ProfileStore.Profile preview = new ProfileStore.Profile(packageName, w, h, normalized, true, true);
+            PerAppCompat.Plan plan = PerAppCompat.build(preview, metrics);
+            String adjusted = requested == normalized ? "" : " • será limitado para " + normalized;
+            output.setText(limits.label() + adjusted + "\nDensidade Android equivalente da tarefa: ~" + plan.estimatedDensity);
+            output.setTextColor(requested == normalized ? GOOD : WARN);
+        } catch (Exception e) {
+            output.setText("Digite uma resolução e uma DPI Virtual válidas para calcular a faixa.");
+            output.setTextColor(MUTED);
+        }
     }
 
     private void applyAndSaveProfile(ProfileStore.Profile profile) {
@@ -324,7 +383,7 @@ public class MainActivity extends Activity {
                 ProfileStore.save(this, profile);
                 runOnUiThread(() -> {
                     renderProfiles();
-                    Toast.makeText(this, "Perfil aplicado pelo Shizuku\n" + plan.summary, Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Resolução salva. A DPI Virtual será aplicada quando o app abrir.\n" + plan.summary, Toast.LENGTH_LONG).show();
                 });
             } catch (Exception e) {
                 String message = safeMessage(e);
@@ -339,7 +398,7 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 ShizukuCore.execute(plan.command);
-                runOnUiThread(() -> Toast.makeText(this, "Perfil reaplicado • " + plan.summary, Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> Toast.makeText(this, "Resolução reaplicada. Abra o app para aplicar a DPI Virtual • " + plan.summary, Toast.LENGTH_LONG).show());
             } catch (Exception e) {
                 String message = safeMessage(e);
                 runOnUiThread(() -> Toast.makeText(this, "Falha ao reaplicar: " + message, Toast.LENGTH_LONG).show());
@@ -355,7 +414,7 @@ public class MainActivity extends Activity {
                 ProfileStore.delete(this, profile.packageName);
                 runOnUiThread(() -> {
                     renderProfiles();
-                    Toast.makeText(this, "Perfil removido e app restaurado", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Perfil removido • resolução e DPI restauradas", Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 String message = safeMessage(e);
@@ -384,11 +443,14 @@ public class MainActivity extends Activity {
 
             box.addView(text(labelName, 16, TEXT, true));
             PerAppCompat.Plan plan = PerAppCompat.build(profile, metrics);
+            PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(profile.width, profile.height, metrics);
             TextView detail = text(
                     profile.packageName +
-                            "\nAlvo: " + profile.width + " × " + profile.height + " • " + profile.density + " DPI" +
+                            "\nResolução: " + profile.width + " × " + profile.height +
+                            "\nDPI Virtual: " + profile.density + " (faixa " + limits.minDpi + "–" + limits.maxDpi + ")" +
+                            "\nDensidade Android da tarefa: ~" + plan.estimatedDensity +
                             "\nAplicação: " + plan.summary +
-                            "\nEstado: " + (profile.enabled ? "ATIVO" : "PAUSADO"),
+                            "\nEstado: " + (profile.enabled ? "ATIVO • somente quando o app estiver em primeiro plano" : "PAUSADO"),
                     12, MUTED, false
             );
             detail.setPadding(0, dp(3), 0, dp(10));
@@ -398,12 +460,12 @@ public class MainActivity extends Activity {
             firstRow.setOrientation(LinearLayout.HORIZONTAL);
             firstRow.addView(button("EDITAR", v -> editProfile(profile.packageName)), new LinearLayout.LayoutParams(0, dp(44), 1f));
             firstRow.addView(spacerHorizontal(8));
-            firstRow.addView(button("REAPLICAR", v -> reapplyProfile(profile)), new LinearLayout.LayoutParams(0, dp(44), 1f));
+            firstRow.addView(button("REAPLICAR RESOLUÇÃO", v -> reapplyProfile(profile)), new LinearLayout.LayoutParams(0, dp(44), 1f));
             box.addView(firstRow);
             box.addView(spacer(8));
             box.addView(button("REMOVER E RESTAURAR PADRÃO", v -> new AlertDialog.Builder(this)
                     .setTitle("Remover perfil?")
-                    .setMessage("O Shizuku vai remover a escala individual de " + profile.packageName + " e restaurar o comportamento padrão do Android.")
+                    .setMessage("O Shizuku vai remover a resolução individual e restaurar a DPI da tarefa de " + profile.packageName + ".")
                     .setPositiveButton("Remover", (d, w) -> removeProfile(profile))
                     .setNegativeButton("Cancelar", null)
                     .show()));

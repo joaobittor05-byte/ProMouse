@@ -24,12 +24,12 @@ jobs:
         with:
           gradle-version: '8.7'
       - run: gradle :app:assembleDebug --stacktrace
-      - run: cp app/build/outputs/apk/debug/app-debug.apk LeoOptimazer-v1-alpha2-brevent.apk
+      - run: cp app/build/outputs/apk/debug/app-debug.apk LeoOptimazer-v1-alpha3-brevent-fix.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LeoOptimazer-V1-Alpha2-Brevent
+          name: LeoOptimazer-V1-Alpha3-Brevent-Fix
           path: |
-            LeoOptimazer-v1-alpha2-brevent.apk
+            LeoOptimazer-v1-alpha3-brevent-fix.apk
             ACTIVATE_LEO_OPTIMAZER.bat
           if-no-files-found: error
           retention-days: 30

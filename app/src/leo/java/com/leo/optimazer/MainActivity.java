@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         root.addView(text("LEO OPTIMAZER", 27, TEXT, true));
-        TextView subtitle = text("Shizuku Core • DPI + resolução + Touch Engine por aplicativo", 14, MUTED, false);
+        TextView subtitle = text("Shizuku Core • DPI + resolução + Touch Engine universal por aplicativo", 14, MUTED, false);
         subtitle.setPadding(0, dp(2), 0, dp(18));
         root.addView(subtitle);
 
@@ -125,7 +125,7 @@ public class MainActivity extends Activity {
         root.addView(profilesContainer, matchWrap());
 
         TextView safety = text(
-                "Touch Engine: Resposta rápida prioriza modo desempenho e taxa de atualização disponível. Arrasto linear usa a suavização/estabilidade do controlador de toque do fabricante quando o Shizuku consegue acessá-la. O Leo não injeta uma segunda sequência de toques se o aparelho não oferecer esse recurso.",
+                "Touch Engine universal: não usa Game Turbo, Game Booster ou HAL específico de fabricante. Resposta rápida usa o modo de desempenho AOSP e prioriza a maior taxa de atualização disponível. Arrasto linear aproveita o resampling nativo do Android quando a ROM o mantém ativo; o Leo não duplica o toque físico quando a ROM não permite monitoramento bruto.",
                 12, MUTED, false);
         safety.setPadding(0, dp(16), 0, 0);
         root.addView(safety);
@@ -316,7 +316,7 @@ public class MainActivity extends Activity {
         form.addView(linearDrag);
         form.addView(label("Intensidade do Touch Engine (1–100)"));
         form.addView(touchLevel);
-        form.addView(text("Resposta rápida pode alterar temporariamente Game Mode e taxa mínima de atualização do Android. Arrasto linear tenta usar a estabilização do controlador touch do fabricante; tudo é restaurado ao sair do aplicativo.", 11, MUTED, false));
+        form.addView(text("Resposta rápida usa recursos AOSP do Android via Shizuku e pode elevar temporariamente a prioridade de atualização da tela. Arrasto linear usa o resampling nativo do Android quando disponível. Nenhum Game Turbo, Game Booster ou controlador proprietário é alterado; tudo é restaurado ao sair do aplicativo.", 11, MUTED, false));
 
         TextWatcher watcher = new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}

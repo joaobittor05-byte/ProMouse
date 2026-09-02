@@ -22,6 +22,7 @@ public class MonitorService extends Service {
     public static final String KEY_LAST_FREED_MB = "last_freed_mb";
     public static final String KEY_LAST_CLEANUP_RESULT = "last_cleanup_result";
     public static final String KEY_LAST_PROFILE_RESULT = "last_profile_result";
+    public static final String KEY_LAST_TOUCH_RESULT = "last_touch_result";
 
     private static final String CHANNEL_ID = "leo_optimizer_core";
     private static final int NOTIFICATION_ID = 4107;
@@ -31,8 +32,10 @@ public class MonitorService extends Service {
     private long nextCleanupAt = Long.MAX_VALUE;
     private String activeDpiPackage;
     private int activeTaskDensity = -1;
-    private int activeVirtualDpi = -1;
+    private int activeDedicatedDpi = -1;
     private long nextDensityVerificationAt = 0L;
+    private String activeTouchPackage;
+    private long nextTouchRefreshAt = 0L;
 
     @Override
     public void onCreate() {
@@ -67,7 +70,7 @@ public class MonitorService extends Service {
                 try {
                     profileText = syncForegroundProfile(now);
                 } catch (Exception e) {
-                    profileText = "DPI por app indisponível: " + safeMessage(e);
+                    profileText = "Perfil por app indisponível: " + safeMessage(e);
                     saveProfileState(profileText);
                 }
 
@@ -83,7 +86,7 @@ public class MonitorService extends Service {
                 }
             }
 
-            if (worker != null) worker.postDelayed(this, 900L);
+            if (worker != null) worker.postDelayed(this, 800L);
         }
     };
 
@@ -95,6 +98,10 @@ public class MonitorService extends Service {
             try { ShizukuCore.execute("leo density-reset " + activeDpiPackage); } catch (Exception ignored) {}
             clearActiveDpi();
         }
+        if (activeTouchPackage != null && !activeTouchPackage.equals(top)) {
+            try { ShizukuCore.execute("leo touch-reset " + activeTouchPackage); } catch (Exception ignored) {}
+            clearActiveTouch();
+        }
 
         ProfileStore.Profile profile = ProfileStore.get(this, top);
         if (profile == null || !profile.enabled) {
@@ -104,6 +111,8 @@ public class MonitorService extends Service {
         }
 
         PerAppCompat.Plan plan = PerAppCompat.build(profile, getResources().getDisplayMetrics());
+        String touchState = syncTouchEngine(top, profile, now);
+
         int wantedDensity = plan.estimatedDensity;
         boolean needsApply = !top.equals(activeDpiPackage) || wantedDensity != activeTaskDensity;
 
@@ -113,7 +122,7 @@ public class MonitorService extends Service {
                 needsApply = true;
             } else {
                 nextDensityVerificationAt = now + 3000L;
-                String state = "DPI " + plan.normalizedDensity + " verificada • Android " + wantedDensity;
+                String state = "DPI dedicada " + plan.normalizedDensity + " verificada • Touch " + touchState;
                 saveProfileState(state + "\n" + status);
                 return state;
             }
@@ -124,34 +133,62 @@ public class MonitorService extends Service {
             if (isSuccess(result, wantedDensity)) {
                 activeDpiPackage = top;
                 activeTaskDensity = wantedDensity;
-                activeVirtualDpi = plan.normalizedDensity;
+                activeDedicatedDpi = plan.normalizedDensity;
                 nextDensityVerificationAt = now + 2200L;
-                String state = "DPI Virtual " + plan.normalizedDensity
-                        + " aplicada e verificada • Android " + wantedDensity;
+                String state = "DPI " + plan.normalizedDensity + " aplicada • Touch " + touchState;
                 saveProfileState(state + "\n" + result);
                 return state;
             }
 
             if (result.startsWith("TASK_DENSITY_REJECTED")) {
                 clearActiveDpi();
-                String state = "Android/HyperOS rejeitou a DPI do app";
+                String state = "Android/HyperOS rejeitou a DPI • Touch " + touchState;
                 saveProfileState(state + "\n" + result);
                 return state;
             }
 
-            String state = "Perfil salvo • aguardando tarefa " + shortName(top);
+            String state = "Perfil salvo • aguardando tarefa • Touch " + touchState;
             saveProfileState(state + "\n" + result);
             return state;
         }
 
-        String state = "DPI Virtual " + activeVirtualDpi + " ativa • Android " + activeTaskDensity;
-        return state;
+        return "DPI " + activeDedicatedDpi + " ativa • Touch " + touchState;
+    }
+
+    private String syncTouchEngine(String top, ProfileStore.Profile profile, long now) throws Exception {
+        if (!profile.fastTouch && !profile.linearDrag) {
+            if (top.equals(activeTouchPackage)) {
+                ShizukuCore.execute("leo touch-reset " + top);
+                clearActiveTouch();
+            }
+            saveTouchState("desligado");
+            return "OFF";
+        }
+
+        if (!top.equals(activeTouchPackage) || now >= nextTouchRefreshAt) {
+            String command = "leo touch-apply " + top + " "
+                    + (profile.fastTouch ? "1" : "0") + " "
+                    + (profile.linearDrag ? "1" : "0") + " "
+                    + profile.touchLevel + " v1";
+            String result = ShizukuCore.execute(command);
+            activeTouchPackage = top;
+            nextTouchRefreshAt = now + 5000L;
+            saveTouchState(result);
+
+            if (result.contains("XIAOMI_TOUCH_OK")) {
+                return profile.fastTouch && profile.linearDrag ? "RÁPIDO+SUAVE OEM" : "OEM ATIVO";
+            }
+            if (profile.fastTouch && result.contains("GAME_MODE=")) {
+                return profile.linearDrag ? "RÁPIDO • SUAVIZAÇÃO LIMITADA" : "RÁPIDO";
+            }
+            return "LIMITADO";
+        }
+
+        return profile.fastTouch && profile.linearDrag ? "RÁPIDO+LINEAR" : "ATIVO";
     }
 
     private boolean isSuccess(String result, int wantedDensity) {
-        if (!(result.startsWith("TASK_DENSITY_OK") || result.startsWith("TASK_DENSITY_ALREADY"))) {
-            return false;
-        }
+        if (!(result.startsWith("TASK_DENSITY_OK") || result.startsWith("TASK_DENSITY_ALREADY"))) return false;
         return result.contains("actual=" + wantedDensity) && result.contains("verified=true");
     }
 
@@ -162,16 +199,23 @@ public class MonitorService extends Service {
     }
 
     private void saveProfileState(String value) {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString(KEY_LAST_PROFILE_RESULT, value)
-                .apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST_PROFILE_RESULT, value).apply();
+    }
+
+    private void saveTouchState(String value) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST_TOUCH_RESULT, value).apply();
     }
 
     private void clearActiveDpi() {
         activeDpiPackage = null;
         activeTaskDensity = -1;
-        activeVirtualDpi = -1;
+        activeDedicatedDpi = -1;
         nextDensityVerificationAt = 0L;
+    }
+
+    private void clearActiveTouch() {
+        activeTouchPackage = null;
+        nextTouchRefreshAt = 0L;
     }
 
     private void runAutomaticCleanup() {
@@ -186,7 +230,7 @@ public class MonitorService extends Service {
                     .putLong(KEY_LAST_FREED_MB, freed)
                     .putString(KEY_LAST_CLEANUP_RESULT, "SHIZUKU_OK")
                     .apply();
-            updateNotification("RAM limpa • +" + freed + " MB • perfil por app continua ativo");
+            updateNotification("RAM limpa • +" + freed + " MB • Touch Engine mantido");
         } catch (Exception e) {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putLong(KEY_LAST_CLEANUP, System.currentTimeMillis())
@@ -227,26 +271,22 @@ public class MonitorService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Leo Optimazer", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Perfis individuais de DPI/resolução e limpeza automática via Shizuku");
+            channel.setDescription("Perfis de DPI/resolução, Touch Engine e RAM automática via Shizuku");
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
 
     private Notification notification(String text) {
         Intent open = new Intent(this, MainActivity.class);
-        PendingIntent pending = PendingIntent.getActivity(
-                this,
-                4107,
-                open,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+        PendingIntent pending = PendingIntent.getActivity(this, 4107, open,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
 
         return builder
-                .setContentTitle("Leo Optimazer • Shizuku")
+                .setContentTitle("Leo Optimazer • Shizuku + Touch Engine")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
                 .setContentIntent(pending)
@@ -260,10 +300,16 @@ public class MonitorService extends Service {
 
     @Override
     public void onDestroy() {
-        if (activeDpiPackage != null && ShizukuCore.isReady()) {
-            try { ShizukuCore.execute("leo density-reset " + activeDpiPackage); } catch (Exception ignored) {}
+        if (ShizukuCore.isReady()) {
+            if (activeDpiPackage != null) {
+                try { ShizukuCore.execute("leo density-reset " + activeDpiPackage); } catch (Exception ignored) {}
+            }
+            if (activeTouchPackage != null) {
+                try { ShizukuCore.execute("leo touch-reset " + activeTouchPackage); } catch (Exception ignored) {}
+            }
         }
         clearActiveDpi();
+        clearActiveTouch();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).apply();
         if (worker != null) worker.removeCallbacksAndMessages(null);
         if (workerThread != null) workerThread.quitSafely();

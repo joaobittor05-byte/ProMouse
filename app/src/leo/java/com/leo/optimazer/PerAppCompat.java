@@ -6,18 +6,26 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * Perfil por aplicativo com DPI Android dedicada vinculada à qualidade.
+ *
+ * Regra:
+ *  - 400 DPI = resolução-base salva no perfil.
+ *  - DPI > 400 aumenta a resolução-alvo progressivamente.
+ *  - DPI < 400 reduz a resolução-alvo progressivamente.
+ *  - A curva usa sqrt(DPI / 400) para não tornar a carga da GPU extrema.
+ *
+ * A resolução efetiva continua usando o mecanismo de compatibilidade por pacote
+ * disponível no Android, então o valor final é aproximado ao fator suportado mais próximo.
+ */
 public final class PerAppCompat {
-    public static final int VIRTUAL_DPI_BASE = 800;
-    private static final int[] FACTORS = {30,35,40,45,50,55,60,65,70,75,80,85,90};
+    public static final int DEFAULT_DEDICATED_DPI = 400;
+    public static final int MIN_DEDICATED_DPI = 160;
+    public static final int MAX_DEDICATED_DPI = 1000;
 
-    // Faixa de segurança do Leo para a menor dimensão lógica do app.
-    // Não é um limite físico do painel: serve para impedir perfis extremos que quebram a UI.
-    private static final int SAFE_MIN_SHORT_DP = 320;
-    private static final int SAFE_MAX_SHORT_DP = 900;
-    private static final int MIN_ANDROID_DENSITY = 72;
-    private static final int MAX_ANDROID_DENSITY = 1000;
-    private static final int MIN_VIRTUAL_DPI = 200;
-    private static final int MAX_VIRTUAL_DPI = 6400;
+    private static final int MIN_EFFECTIVE_PX = 320;
+    private static final int MAX_EFFECTIVE_PX = 7680;
+    private static final int[] FACTORS = {30,35,40,45,50,55,60,65,70,75,80,85,90};
 
     public static final class DpiLimits {
         public final int minDpi;
@@ -43,12 +51,12 @@ public final class PerAppCompat {
             this.equivalentAndroidDensity = equivalentAndroidDensity;
         }
 
-        public int clamp(int virtualDpi) {
-            return Math.max(minDpi, Math.min(maxDpi, virtualDpi));
+        public int clamp(int dpi) {
+            return Math.max(minDpi, Math.min(maxDpi, dpi));
         }
 
         public String label() {
-            return "DPI Virtual segura nesta resolução: " + minDpi + "–" + maxDpi;
+            return "DPI dedicada segura para esta resolução-base: " + minDpi + "–" + maxDpi;
         }
     }
 
@@ -58,11 +66,9 @@ public final class PerAppCompat {
         public final int factorPercent;
         public final int estimatedWidth;
         public final int estimatedHeight;
-        // Densidade Android que será aplicada NA TAREFA do app pelo Shizuku.
         public final int estimatedDensity;
+        // Mantido para compatibilidade com as telas/serviços atuais. Agora representa a DPI dedicada.
         public final int estimatedVirtualDpi;
-        // Estes dois campos mantêm compatibilidade com a UI atual e agora representam
-        // os limites de DPI Virtual, não densidade Android.
         public final int minAllowedDensity;
         public final int maxAllowedDensity;
         public final int requestedDensity;
@@ -72,7 +78,7 @@ public final class PerAppCompat {
 
         Plan(boolean enabled, boolean inverse, int factorPercent,
              int estimatedWidth, int estimatedHeight,
-             int estimatedDensity, int estimatedVirtualDpi,
+             int estimatedDensity, int estimatedDedicatedDpi,
              int minAllowedDensity, int maxAllowedDensity,
              int requestedDensity, int normalizedDensity,
              String command, String summary) {
@@ -82,7 +88,7 @@ public final class PerAppCompat {
             this.estimatedWidth = estimatedWidth;
             this.estimatedHeight = estimatedHeight;
             this.estimatedDensity = estimatedDensity;
-            this.estimatedVirtualDpi = estimatedVirtualDpi;
+            this.estimatedVirtualDpi = estimatedDedicatedDpi;
             this.minAllowedDensity = minAllowedDensity;
             this.maxAllowedDensity = maxAllowedDensity;
             this.requestedDensity = requestedDensity;
@@ -98,101 +104,105 @@ public final class PerAppCompat {
         final double scale;
         final int width;
         final int height;
-        final int baseAndroidDensity;
         final double resolutionError;
 
         Candidate(boolean inverse, int factorPercent, double scale,
-                  int width, int height, int baseAndroidDensity,
-                  double resolutionError) {
+                  int width, int height, double resolutionError) {
             this.inverse = inverse;
             this.factorPercent = factorPercent;
             this.scale = scale;
             this.width = width;
             this.height = height;
-            this.baseAndroidDensity = baseAndroidDensity;
             this.resolutionError = resolutionError;
         }
     }
 
     private PerAppCompat() {}
 
-    // 800 = densidade base da resolução do app; 1600 = metade da densidade Android;
-    // 2400 = aproximadamente um terço. Isso NÃO escolhe nem altera a resolução.
-    public static int androidDensityFromVirtual(int virtualDpi, int baseAndroidDensity) {
-        int safeVirtual = Math.max(1, virtualDpi);
-        int density = (int) Math.round(baseAndroidDensity * (VIRTUAL_DPI_BASE / (double) safeVirtual));
-        return Math.max(MIN_ANDROID_DENSITY, Math.min(MAX_ANDROID_DENSITY, density));
+    /**
+     * Curva balanceada: dobrar a DPI aumenta cada eixo por sqrt(2),
+     * portanto aproximadamente dobra a quantidade total de pixels renderizados,
+     * em vez de quadruplicá-la.
+     */
+    public static double qualityScaleForDpi(int dedicatedDpi) {
+        int safe = Math.max(MIN_DEDICATED_DPI, Math.min(MAX_DEDICATED_DPI, dedicatedDpi));
+        return Math.sqrt(safe / (double) DEFAULT_DEDICATED_DPI);
     }
 
-    public static int virtualFromAndroidDensity(int androidDensity, int baseAndroidDensity) {
-        int safeAndroid = Math.max(1, androidDensity);
-        int virtual = (int) Math.round(VIRTUAL_DPI_BASE * (baseAndroidDensity / (double) safeAndroid));
-        return Math.max(MIN_VIRTUAL_DPI, Math.min(MAX_VIRTUAL_DPI, virtual));
+    public static int linkedWidth(int baseWidth, int dedicatedDpi) {
+        return clampPx((int) Math.round(Math.max(1, baseWidth) * qualityScaleForDpi(dedicatedDpi)));
     }
 
-    public static DpiLimits limitsForResolution(int requestedW, int requestedH, DisplayMetrics nativeMetrics) {
-        Candidate resolution = bestResolutionCandidate(candidates(
+    public static int linkedHeight(int baseHeight, int dedicatedDpi) {
+        return clampPx((int) Math.round(Math.max(1, baseHeight) * qualityScaleForDpi(dedicatedDpi)));
+    }
+
+    public static DpiLimits limitsForResolution(int baseW, int baseH, DisplayMetrics nativeMetrics) {
+        int width = Math.max(1, baseW);
+        int height = Math.max(1, baseH);
+
+        double minScaleBySize = Math.max(
+                MIN_EFFECTIVE_PX / (double) width,
+                MIN_EFFECTIVE_PX / (double) height);
+        double maxScaleBySize = Math.min(
+                MAX_EFFECTIVE_PX / (double) width,
+                MAX_EFFECTIVE_PX / (double) height);
+
+        double globalMinScale = Math.sqrt(MIN_DEDICATED_DPI / (double) DEFAULT_DEDICATED_DPI);
+        double globalMaxScale = Math.sqrt(MAX_DEDICATED_DPI / (double) DEFAULT_DEDICATED_DPI);
+
+        double minScale = Math.max(globalMinScale, minScaleBySize);
+        double maxScale = Math.min(globalMaxScale, maxScaleBySize);
+        if (maxScale < minScale) maxScale = minScale;
+
+        int minDpi = (int) Math.ceil(DEFAULT_DEDICATED_DPI * minScale * minScale);
+        int maxDpi = (int) Math.floor(DEFAULT_DEDICATED_DPI * maxScale * maxScale);
+        minDpi = Math.max(MIN_DEDICATED_DPI, Math.min(MAX_DEDICATED_DPI, minDpi));
+        maxDpi = Math.max(minDpi, Math.min(MAX_DEDICATED_DPI, maxDpi));
+
+        int recommended = Math.max(minDpi, Math.min(maxDpi, DEFAULT_DEDICATED_DPI));
+        int targetW = linkedWidth(width, recommended);
+        int targetH = linkedHeight(height, recommended);
+        Candidate candidate = bestResolutionCandidate(candidates(
                 Math.max(1, nativeMetrics.widthPixels),
                 Math.max(1, nativeMetrics.heightPixels),
-                Math.max(1, nativeMetrics.densityDpi),
-                Math.max(1, requestedW),
-                Math.max(1, requestedH)
-        ));
-
-        int shortPx = Math.max(1, Math.min(resolution.width, resolution.height));
-        int minAndroidDensity = Math.max(MIN_ANDROID_DENSITY,
-                (int) Math.ceil(shortPx * 160.0 / SAFE_MAX_SHORT_DP));
-        int maxAndroidDensity = Math.min(MAX_ANDROID_DENSITY,
-                (int) Math.floor(shortPx * 160.0 / SAFE_MIN_SHORT_DP));
-        if (maxAndroidDensity < minAndroidDensity) maxAndroidDensity = minAndroidDensity;
-
-        int minVirtual = virtualFromAndroidDensity(maxAndroidDensity, resolution.baseAndroidDensity);
-        int maxVirtual = virtualFromAndroidDensity(minAndroidDensity, resolution.baseAndroidDensity);
-        if (maxVirtual < minVirtual) {
-            int t = minVirtual;
-            minVirtual = maxVirtual;
-            maxVirtual = t;
-        }
-        minVirtual = Math.max(MIN_VIRTUAL_DPI, minVirtual);
-        maxVirtual = Math.min(MAX_VIRTUAL_DPI, maxVirtual);
-
-        int recommended = Math.max(minVirtual, Math.min(maxVirtual, VIRTUAL_DPI_BASE));
-        int equivalent = androidDensityFromVirtual(recommended, resolution.baseAndroidDensity);
+                targetW, targetH));
 
         return new DpiLimits(
-                minVirtual,
-                maxVirtual,
+                minDpi,
+                maxDpi,
                 recommended,
-                resolution.width,
-                resolution.height,
-                resolution.factorPercent,
-                resolution.inverse,
-                equivalent
+                candidate.width,
+                candidate.height,
+                candidate.factorPercent,
+                candidate.inverse,
+                recommended
         );
     }
 
     public static Plan build(ProfileStore.Profile profile, DisplayMetrics nativeMetrics) {
         int nativeW = Math.max(1, nativeMetrics.widthPixels);
         int nativeH = Math.max(1, nativeMetrics.heightPixels);
-        int nativeDpi = Math.max(1, nativeMetrics.densityDpi);
+
+        DpiLimits limits = limitsForResolution(profile.width, profile.height, nativeMetrics);
+        int dedicatedDpi = limits.clamp(profile.density);
+        double qualityScale = qualityScaleForDpi(dedicatedDpi);
+        int linkedTargetW = linkedWidth(profile.width, dedicatedDpi);
+        int linkedTargetH = linkedHeight(profile.height, dedicatedDpi);
 
         Candidate resolution = bestResolutionCandidate(candidates(
-                nativeW, nativeH, nativeDpi, profile.width, profile.height));
-        DpiLimits limits = limitsForResolution(profile.width, profile.height, nativeMetrics);
-        int normalizedVirtual = limits.clamp(profile.density);
-        int targetTaskDensity = androidDensityFromVirtual(normalizedVirtual, resolution.baseAndroidDensity);
+                nativeW, nativeH, linkedTargetW, linkedTargetH));
 
         if (!profile.enabled) {
-            String summary = limits.label() + " • perfil desativado • resolução e DPI restauradas";
+            String summary = "perfil desativado • resolução e DPI restauradas";
             return new Plan(false, false, 100,
-                    nativeW, nativeH, nativeDpi, VIRTUAL_DPI_BASE,
+                    nativeW, nativeH,
+                    DEFAULT_DEDICATED_DPI, DEFAULT_DEDICATED_DPI,
                     limits.minDpi, limits.maxDpi,
-                    profile.density, normalizedVirtual,
+                    profile.density, dedicatedDpi,
                     resetCommand(profile.packageName), summary);
         }
 
-        // A resolução é escolhida SOMENTE pela resolução solicitada. A DPI não participa
-        // desta decisão, logo mudar 800 -> 1600 -> 2400 nunca troca o fator de resolução.
         String resolutionCommand;
         if (Math.abs(resolution.scale - 1.0) < 0.01) {
             resolutionCommand = resetResolutionCommand(profile.packageName);
@@ -208,25 +218,30 @@ public final class PerAppCompat {
             resolutionCommand = builder.toString();
         }
 
-        String dpiAdjustment = profile.density == normalizedVirtual
-                ? "DPI Virtual " + profile.density
-                : "DPI Virtual " + profile.density + " → limitado a " + normalizedVirtual;
+        String dpiAdjustment = profile.density == dedicatedDpi
+                ? "DPI dedicada " + dedicatedDpi
+                : "DPI dedicada " + profile.density + " → limitada a " + dedicatedDpi;
 
         String summary = String.format(Locale.US,
-                "resolução independente ~%d×%d • escala %s%d%% • %s • densidade Android da tarefa ~%d • DPI não altera a resolução",
+                "base %d×%d @ %d DPI • qualidade %.2fx • alvo vinculado %d×%d • efetivo aprox. %d×%d • escala Android %s%d%%",
+                profile.width,
+                profile.height,
+                dedicatedDpi,
+                qualityScale,
+                linkedTargetW,
+                linkedTargetH,
                 resolution.width,
                 resolution.height,
                 resolution.inverse ? "1/" : "",
-                resolution.factorPercent,
-                dpiAdjustment,
-                targetTaskDensity);
+                resolution.factorPercent);
 
         return new Plan(true, resolution.inverse, resolution.factorPercent,
                 resolution.width, resolution.height,
-                targetTaskDensity, normalizedVirtual,
+                dedicatedDpi, dedicatedDpi,
                 limits.minDpi, limits.maxDpi,
-                profile.density, normalizedVirtual,
-                resolutionCommand, summary);
+                profile.density, dedicatedDpi,
+                resolutionCommand,
+                dpiAdjustment + " • " + summary);
     }
 
     public static String resetCommand(String packageName) {
@@ -245,27 +260,24 @@ public final class PerAppCompat {
         return command.toString();
     }
 
-    private static List<Candidate> candidates(int nativeW, int nativeH, int nativeDpi,
-                                              int targetW, int targetH) {
+    private static List<Candidate> candidates(int nativeW, int nativeH, int targetW, int targetH) {
         List<Candidate> result = new ArrayList<>();
-        result.add(candidate(false, 100, 1.0, nativeW, nativeH, nativeDpi, targetW, targetH));
+        result.add(candidate(false, 100, 1.0, nativeW, nativeH, targetW, targetH));
         for (int factor : FACTORS) {
             double down = factor / 100.0;
-            result.add(candidate(false, factor, down, nativeW, nativeH, nativeDpi, targetW, targetH));
+            result.add(candidate(false, factor, down, nativeW, nativeH, targetW, targetH));
             double inverse = 100.0 / factor;
-            result.add(candidate(true, factor, inverse, nativeW, nativeH, nativeDpi, targetW, targetH));
+            result.add(candidate(true, factor, inverse, nativeW, nativeH, targetW, targetH));
         }
         return result;
     }
 
     private static Candidate candidate(boolean inverse, int factor, double scale,
-                                       int nativeW, int nativeH, int nativeDpi,
+                                       int nativeW, int nativeH,
                                        int targetW, int targetH) {
-        int width = (int) Math.round(nativeW * scale);
-        int height = (int) Math.round(nativeH * scale);
-        int baseDensity = Math.max(MIN_ANDROID_DENSITY,
-                Math.min(MAX_ANDROID_DENSITY, (int) Math.round(nativeDpi * scale)));
-        return new Candidate(inverse, factor, scale, width, height, baseDensity,
+        int width = clampPx((int) Math.round(nativeW * scale));
+        int height = clampPx((int) Math.round(nativeH * scale));
+        return new Candidate(inverse, factor, scale, width, height,
                 resolutionError(width, height, targetW, targetH));
     }
 
@@ -285,5 +297,9 @@ public final class PerAppCompat {
         double shortError = Math.abs(actualShort - targetShort) / (double) Math.max(1, targetShort);
         double longError = Math.abs(actualLong - targetLong) / (double) Math.max(1, targetLong);
         return Math.max(shortError, longError);
+    }
+
+    private static int clampPx(int value) {
+        return Math.max(MIN_EFFECTIVE_PX, Math.min(MAX_EFFECTIVE_PX, value));
     }
 }

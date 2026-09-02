@@ -64,6 +64,13 @@ public class LeoShizukuService extends ILeoShell.Stub {
         if (p.length == 3 && "leo".equals(p[0]) && "density-status".equals(p[1])
                 && validPackage(p[2])) return;
 
+        if (p.length == 7 && "leo".equals(p[0]) && "touch-apply".equals(p[1])
+                && validPackage(p[2]) && validBool(p[3]) && validBool(p[4])
+                && validTouchLevel(p[5]) && "v1".equals(p[6])) return;
+
+        if (p.length == 3 && "leo".equals(p[0]) && "touch-reset".equals(p[1])
+                && validPackage(p[2])) return;
+
         if (p.length == 2 && "am".equals(p[0]) && "kill-all".equals(p[1])) return;
 
         if (p.length == 3 && "am".equals(p[0]) && "force-stop".equals(p[1]) && validPackage(p[2])) return;
@@ -94,6 +101,11 @@ public class LeoShizukuService extends ILeoShell.Stub {
                     return TaskDensityController.reset(p[2]);
                 case "density-status":
                     return TaskDensityController.status(p[2]);
+                case "touch-apply":
+                    return TouchEngineController.apply(
+                            p[2], "1".equals(p[3]), "1".equals(p[4]), Integer.parseInt(p[5]));
+                case "touch-reset":
+                    return TouchEngineController.reset(p[2]);
                 default:
                     throw new SecurityException("Operação Leo não permitida");
             }
@@ -109,6 +121,19 @@ public class LeoShizukuService extends ILeoShell.Stub {
         try {
             int density = Integer.parseInt(value);
             return density >= 72 && density <= 1000;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private static boolean validBool(String value) {
+        return "0".equals(value) || "1".equals(value);
+    }
+
+    private static boolean validTouchLevel(String value) {
+        try {
+            int level = Integer.parseInt(value);
+            return level >= 1 && level <= 100;
         } catch (NumberFormatException e) {
             return false;
         }

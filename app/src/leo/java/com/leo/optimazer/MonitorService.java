@@ -21,6 +21,7 @@ public class MonitorService extends Service {
     public static final String KEY_LAST_CLEANUP = "last_cleanup";
     public static final String KEY_LAST_FREED_MB = "last_freed_mb";
     public static final String KEY_LAST_CLEANUP_RESULT = "last_cleanup_result";
+    public static final String KEY_LAST_PROFILE_RESULT = "last_profile_result";
 
     private static final String CHANNEL_ID = "leo_optimizer_core";
     private static final int NOTIFICATION_ID = 4107;
@@ -28,6 +29,8 @@ public class MonitorService extends Service {
     private HandlerThread workerThread;
     private Handler worker;
     private long nextCleanupAt = Long.MAX_VALUE;
+    private String activeDpiPackage;
+    private int activeTaskDensity = -1;
 
     @Override
     public void onCreate() {
@@ -35,7 +38,7 @@ public class MonitorService extends Service {
         createChannel();
         startForeground(NOTIFICATION_ID, notification("Núcleo Shizuku inicializando…"));
         ShizukuCore.bindUserService();
-        workerThread = new HandlerThread("LeoOptimazer-RamTimer");
+        workerThread = new HandlerThread("LeoOptimazer-CoreMonitor");
         workerThread.start();
         worker = new Handler(workerThread.getLooper());
         scheduleFromPreferences();
@@ -53,24 +56,70 @@ public class MonitorService extends Service {
         @Override public void run() {
             long now = SystemClock.elapsedRealtime();
             long sec = getSharedPreferences(PREFS, MODE_PRIVATE).getLong(KEY_INTERVAL_SEC, 0L);
+            String profileText = "Perfis aguardando app";
 
-            if (sec < 10L) {
-                nextCleanupAt = Long.MAX_VALUE;
-                updateNotification("Limpeza automática desligada");
-            } else if (!ShizukuCore.hasPermission() || !ShizukuCore.isBinderAlive()) {
+            if (!ShizukuCore.hasPermission() || !ShizukuCore.isBinderAlive()) {
                 updateNotification("Shizuku indisponível • abra o Leo Optimazer");
-            } else if (now >= nextCleanupAt) {
-                runAutomaticCleanup();
-                nextCleanupAt = SystemClock.elapsedRealtime() + sec * 1000L;
             } else {
                 ShizukuCore.bindUserService();
-                long remaining = Math.max(0L, (nextCleanupAt - now + 999L) / 1000L);
-                updateNotification("Próxima limpeza em " + formatRemaining(remaining));
+                try {
+                    profileText = syncForegroundProfile();
+                } catch (Exception e) {
+                    profileText = "DPI por app indisponível: " + safeMessage(e);
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putString(KEY_LAST_PROFILE_RESULT, profileText)
+                            .apply();
+                }
+
+                if (sec < 10L) {
+                    nextCleanupAt = Long.MAX_VALUE;
+                    updateNotification(profileText + " • RAM auto off");
+                } else if (now >= nextCleanupAt) {
+                    runAutomaticCleanup();
+                    nextCleanupAt = SystemClock.elapsedRealtime() + sec * 1000L;
+                } else {
+                    long remaining = Math.max(0L, (nextCleanupAt - now + 999L) / 1000L);
+                    updateNotification(profileText + " • RAM em " + formatRemaining(remaining));
+                }
             }
 
-            if (worker != null) worker.postDelayed(this, 1000L);
+            if (worker != null) worker.postDelayed(this, 900L);
         }
     };
+
+    private String syncForegroundProfile() throws Exception {
+        String top = ShizukuCore.execute("leo top").trim();
+        if (top.isEmpty()) return "Nenhum app detectado";
+
+        if (activeDpiPackage != null && !activeDpiPackage.equals(top)) {
+            try { ShizukuCore.execute("leo density-reset " + activeDpiPackage); } catch (Exception ignored) {}
+            activeDpiPackage = null;
+            activeTaskDensity = -1;
+        }
+
+        ProfileStore.Profile profile = ProfileStore.get(this, top);
+        if (profile == null || !profile.enabled) {
+            return "Sistema intacto • " + shortName(top);
+        }
+
+        PerAppCompat.Plan plan = PerAppCompat.build(profile, getResources().getDisplayMetrics());
+        int wantedDensity = plan.estimatedDensity;
+        if (!top.equals(activeDpiPackage) || wantedDensity != activeTaskDensity) {
+            String result = ShizukuCore.execute("leo density " + top + " " + wantedDensity);
+            if (result.startsWith("TASK_DENSITY_OK") || result.startsWith("TASK_DENSITY_ALREADY")) {
+                activeDpiPackage = top;
+                activeTaskDensity = wantedDensity;
+                String state = "Perfil " + shortName(top) + " • DPI Virtual " + plan.normalizedDensity;
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putString(KEY_LAST_PROFILE_RESULT, state + " • Android " + wantedDensity)
+                        .apply();
+                return state;
+            }
+            return "Perfil salvo • aguardando tarefa " + shortName(top);
+        }
+
+        return "Perfil " + shortName(top) + " • DPI Virtual " + plan.normalizedDensity;
+    }
 
     private void runAutomaticCleanup() {
         long before = availableMemoryMb();
@@ -84,7 +133,7 @@ public class MonitorService extends Service {
                     .putLong(KEY_LAST_FREED_MB, freed)
                     .putString(KEY_LAST_CLEANUP_RESULT, "SHIZUKU_OK")
                     .apply();
-            updateNotification("RAM limpa pelo Shizuku • +" + freed + " MB disponíveis");
+            updateNotification("RAM limpa • +" + freed + " MB • perfil por app continua ativo");
         } catch (Exception e) {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putLong(KEY_LAST_CLEANUP, System.currentTimeMillis())
@@ -106,6 +155,11 @@ public class MonitorService extends Service {
         return info.availMem / (1024L * 1024L);
     }
 
+    private String shortName(String packageName) {
+        int dot = packageName.lastIndexOf('.');
+        return dot >= 0 && dot + 1 < packageName.length() ? packageName.substring(dot + 1) : packageName;
+    }
+
     private String formatRemaining(long seconds) {
         if (seconds >= 3600L) return (seconds / 3600L) + "h " + ((seconds % 3600L) / 60L) + "min";
         if (seconds >= 60L) return (seconds / 60L) + "min " + (seconds % 60L) + "s";
@@ -120,7 +174,7 @@ public class MonitorService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Leo Optimazer", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Limpeza automática de RAM usando o núcleo Shizuku");
+            channel.setDescription("Perfis individuais de DPI/resolução e limpeza automática via Shizuku");
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
@@ -153,6 +207,11 @@ public class MonitorService extends Service {
 
     @Override
     public void onDestroy() {
+        if (activeDpiPackage != null && ShizukuCore.isReady()) {
+            try { ShizukuCore.execute("leo density-reset " + activeDpiPackage); } catch (Exception ignored) {}
+        }
+        activeDpiPackage = null;
+        activeTaskDensity = -1;
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).apply();
         if (worker != null) worker.removeCallbacksAndMessages(null);
         if (workerThread != null) workerThread.quitSafely();

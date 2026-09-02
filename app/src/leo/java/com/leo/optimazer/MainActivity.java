@@ -74,10 +74,11 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(20), dp(18), dp(40));
-        scroll.addView(root, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scroll.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         root.addView(text("LEO OPTIMAZER", 27, TEXT, true));
-        TextView subtitle = text("Shizuku Core • resolução + DPI Virtual independentes por app", 14, MUTED, false);
+        TextView subtitle = text("Shizuku Core • DPI + resolução + Touch Engine por aplicativo", 14, MUTED, false);
         subtitle.setPadding(0, dp(2), 0, dp(18));
         root.addView(subtitle);
 
@@ -89,7 +90,7 @@ public class MainActivity extends Activity {
         statusCard.addView(spacer(8));
         statusCard.addView(button("GERENCIAR SHIZUKU", v -> startActivity(new Intent(this, ActivationActivity.class))));
         TextView hint = text(
-                "A resolução é salva por pacote. A DPI Virtual é uma segunda camada aplicada somente à tarefa do aplicativo que está em primeiro plano. O Leo não usa wm size/wm density global.",
+                "400 DPI é o padrão de referência. DPI maior aumenta a resolução vinculada suavemente; DPI menor reduz. O Touch Engine é ativado só enquanto o app do perfil está em primeiro plano e restaura os ajustes ao sair.",
                 12, MUTED, false);
         hint.setPadding(0, dp(10), 0, 0);
         statusCard.addView(hint);
@@ -97,10 +98,10 @@ public class MainActivity extends Activity {
 
         root.addView(sectionTitle("LIMPEZA AUTOMÁTICA DE RAM"));
         LinearLayout ramCard = card();
-        ramInfo = text("RAM: —", 15, TEXT, true);
+        ramInfo = text("RAM: —", 14, TEXT, true);
         ramCard.addView(ramInfo);
         ramCard.addView(spacer(10));
-        ramCard.addView(text("A limpeza usa am kill-all dentro do núcleo Shizuku. Desligar a RAM automática não desliga os perfis por aplicativo.", 12, MUTED, false));
+        ramCard.addView(text("A limpeza usa o núcleo Shizuku. Desligar a RAM automática não desliga DPI, resolução nem Touch Engine.", 12, MUTED, false));
         ramCard.addView(spacer(10));
         ramCard.addView(text("Intervalo em segundos (0 = desligado, mínimo 10s)", 12, MUTED, false));
         intervalInput = editText("0");
@@ -124,9 +125,8 @@ public class MainActivity extends Activity {
         root.addView(profilesContainer, matchWrap());
 
         TextView safety = text(
-                "Regra dos perfis: resolução e DPI Virtual são independentes. Mudar a DPI não troca a resolução salva. Só o app em primeiro plano recebe a DPI; ao trocar de aplicativo, a tarefa anterior é restaurada e o perfil continua salvo.",
-                12, MUTED, false
-        );
+                "Touch Engine: Resposta rápida prioriza modo desempenho e taxa de atualização disponível. Arrasto linear usa a suavização/estabilidade do controlador de toque do fabricante quando o Shizuku consegue acessá-la. O Leo não injeta uma segunda sequência de toques se o aparelho não oferecer esse recurso.",
+                12, MUTED, false);
         safety.setPadding(0, dp(16), 0, 0);
         root.addView(safety);
 
@@ -188,21 +188,17 @@ public class MainActivity extends Activity {
                 Toast.makeText(this, "Use 0 ou pelo menos 10 segundos", Toast.LENGTH_LONG).show();
                 return;
             }
-
             getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
-                    .putLong(MonitorService.KEY_INTERVAL_SEC, sec)
-                    .apply();
-
-            if (sec == 0L) {
-                ensureProfileMonitor();
+                    .putLong(MonitorService.KEY_INTERVAL_SEC, sec).apply();
+            ensureProfileMonitor();
+            if (sec > 0) {
+                if (!requireShizuku()) return;
+                Intent intent = new Intent(this, MonitorService.class);
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
+                Toast.makeText(this, "RAM automática: a cada " + sec + "s", Toast.LENGTH_SHORT).show();
+            } else {
                 Toast.makeText(this, "RAM automática desligada • perfis continuam ativos", Toast.LENGTH_SHORT).show();
-                return;
             }
-
-            if (!requireShizuku()) return;
-            Intent intent = new Intent(this, MonitorService.class);
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
-            Toast.makeText(this, "Limpeza automática: a cada " + sec + "s", Toast.LENGTH_SHORT).show();
         } catch (NumberFormatException e) {
             Toast.makeText(this, "Intervalo inválido", Toast.LENGTH_SHORT).show();
         }
@@ -210,14 +206,9 @@ public class MainActivity extends Activity {
 
     private void stopOptimizer() {
         getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
-                .putLong(MonitorService.KEY_INTERVAL_SEC, 0L)
-                .apply();
+                .putLong(MonitorService.KEY_INTERVAL_SEC, 0L).apply();
         intervalInput.setText("0");
-        if (ProfileStore.all(this).isEmpty()) {
-            stopService(new Intent(this, MonitorService.class));
-        } else {
-            ensureProfileMonitor();
-        }
+        ensureProfileMonitor();
         Toast.makeText(this, "RAM automática desligada • monitor de perfis mantido", Toast.LENGTH_SHORT).show();
     }
 
@@ -237,7 +228,7 @@ public class MainActivity extends Activity {
                         .apply();
                 runOnUiThread(() -> {
                     refreshMemory();
-                    Toast.makeText(this, "Limpeza Shizuku concluída • +" + freed + " MB disponíveis", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Limpeza concluída • +" + freed + " MB disponíveis", Toast.LENGTH_LONG).show();
                 });
             } catch (Exception e) {
                 String message = safeMessage(e);
@@ -253,8 +244,10 @@ public class MainActivity extends Activity {
         long last = prefs.getLong(MonitorService.KEY_LAST_CLEANUP, 0L);
         String result = prefs.getString(MonitorService.KEY_LAST_CLEANUP_RESULT, "—");
         String profileResult = prefs.getString(MonitorService.KEY_LAST_PROFILE_RESULT, "aguardando app com perfil");
+        String touch = prefs.getString(MonitorService.KEY_LAST_TOUCH_RESULT, "aguardando app");
         String lastText = last == 0 ? "ainda não executada" : android.text.format.DateFormat.format("HH:mm:ss", last).toString();
-        ramInfo.setText("Disponível: " + available + " MB\nÚltima limpeza: " + lastText + " • Δ +" + lastFreed + " MB\nRAM: " + result + "\nPerfil: " + profileResult);
+        ramInfo.setText("Disponível: " + available + " MB\nÚltima limpeza: " + lastText + " • Δ +" + lastFreed
+                + " MB\nRAM: " + result + "\nPerfil: " + profileResult + "\nTouch: " + touch);
     }
 
     private long availableMemoryMb() {
@@ -296,43 +289,46 @@ public class MainActivity extends Activity {
         form.setPadding(dp(22), dp(8), dp(22), 0);
 
         EditText width = editText(String.valueOf(existing == null ? dm.widthPixels : existing.width));
-        width.setHint("Largura");
-        width.setInputType(InputType.TYPE_CLASS_NUMBER);
         EditText height = editText(String.valueOf(existing == null ? dm.heightPixels : existing.height));
-        height.setHint("Altura");
+        EditText density = editText(String.valueOf(existing == null ? PerAppCompat.DEFAULT_DEDICATED_DPI : existing.density));
+        EditText touchLevel = editText(String.valueOf(existing == null ? 85 : existing.touchLevel));
+        width.setInputType(InputType.TYPE_CLASS_NUMBER);
         height.setInputType(InputType.TYPE_CLASS_NUMBER);
-        EditText density = editText(String.valueOf(existing == null ? PerAppCompat.VIRTUAL_DPI_BASE : existing.density));
-        density.setHint("DPI Virtual");
         density.setInputType(InputType.TYPE_CLASS_NUMBER);
-        CheckBox enabled = new CheckBox(this);
-        enabled.setText("Perfil individual ativado");
-        enabled.setTextColor(TEXT);
-        enabled.setChecked(existing == null || existing.enabled);
+        touchLevel.setInputType(InputType.TYPE_CLASS_NUMBER);
 
-        TextView dpiHint = text("Calculando faixa da DPI…", 12, ACCENT, true);
-        dpiHint.setPadding(0, dp(8), 0, dp(4));
+        CheckBox enabled = check("Perfil individual ativado", existing == null || existing.enabled);
+        CheckBox fastTouch = check("Resposta rápida ao toque", existing == null || existing.fastTouch);
+        CheckBox linearDrag = check("Arrasto linear / suavização", existing == null || existing.linearDrag);
 
-        form.addView(label("Resolução do aplicativo — largura"));
+        TextView preview = text("Calculando perfil…", 12, ACCENT, true);
+        preview.setPadding(0, dp(8), 0, dp(5));
+
+        form.addView(label("Resolução-base @ 400 DPI — largura"));
         form.addView(width);
-        form.addView(label("Resolução do aplicativo — altura"));
+        form.addView(label("Resolução-base @ 400 DPI — altura"));
         form.addView(height);
-        form.addView(label("DPI Virtual — lógica de mouse (800 = padrão; quanto maior, maior a DPI Virtual)"));
+        form.addView(label("DPI dedicada Android (400 = padrão)"));
         form.addView(density);
-        form.addView(dpiHint);
-        form.addView(text("A DPI Virtual muda somente a densidade da tarefa do app. Ela não altera a resolução acima.", 11, MUTED, false));
+        form.addView(preview);
         form.addView(enabled);
+        form.addView(fastTouch);
+        form.addView(linearDrag);
+        form.addView(label("Intensidade do Touch Engine (1–100)"));
+        form.addView(touchLevel);
+        form.addView(text("Resposta rápida pode alterar temporariamente Game Mode e taxa mínima de atualização do Android. Arrasto linear tenta usar a estabilização do controlador touch do fabricante; tudo é restaurado ao sair do aplicativo.", 11, MUTED, false));
 
         TextWatcher watcher = new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                updateDpiHint(width, height, density, dpiHint, dm, packageName);
+                updatePreview(width, height, density, preview, dm, packageName);
             }
             @Override public void afterTextChanged(Editable s) {}
         };
         width.addTextChangedListener(watcher);
         height.addTextChangedListener(watcher);
         density.addTextChangedListener(watcher);
-        updateDpiHint(width, height, density, dpiHint, dm, packageName);
+        updatePreview(width, height, density, preview, dm, packageName);
 
         new AlertDialog.Builder(this)
                 .setTitle(packageName)
@@ -342,34 +338,43 @@ public class MainActivity extends Activity {
                         int w = Integer.parseInt(width.getText().toString().trim());
                         int h = Integer.parseInt(height.getText().toString().trim());
                         int d = Integer.parseInt(density.getText().toString().trim());
-                        if (w < 320 || w > 7680 || h < 320 || h > 7680 || d < 200 || d > 6400) {
-                            throw new IllegalArgumentException();
-                        }
-                        ProfileStore.Profile profile = new ProfileStore.Profile(packageName, w, h, d, true, enabled.isChecked());
+                        int level = Integer.parseInt(touchLevel.getText().toString().trim());
+                        if (w < 320 || w > 7680 || h < 320 || h > 7680
+                                || d < PerAppCompat.MIN_DEDICATED_DPI || d > PerAppCompat.MAX_DEDICATED_DPI
+                                || level < 1 || level > 100) throw new IllegalArgumentException();
+                        ProfileStore.Profile profile = new ProfileStore.Profile(
+                                packageName, w, h, d, true, enabled.isChecked(),
+                                fastTouch.isChecked(), linearDrag.isChecked(), level);
                         applyAndSaveProfile(profile);
                     } catch (Exception e) {
-                        Toast.makeText(this, "Use resolução 320–7680 e DPI Virtual 200–6400. O Leo limita depois pela resolução escolhida.", Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, "Use resolução 320–7680, DPI "
+                                + PerAppCompat.MIN_DEDICATED_DPI + "–" + PerAppCompat.MAX_DEDICATED_DPI
+                                + " e Touch 1–100", Toast.LENGTH_LONG).show();
                     }
                 })
                 .setNegativeButton("Cancelar", null)
                 .show();
     }
 
-    private void updateDpiHint(EditText width, EditText height, EditText density,
+    private void updatePreview(EditText width, EditText height, EditText density,
                                TextView output, DisplayMetrics metrics, String packageName) {
         try {
             int w = Integer.parseInt(width.getText().toString().trim());
             int h = Integer.parseInt(height.getText().toString().trim());
-            int requested = Integer.parseInt(density.getText().toString().trim());
+            int d = Integer.parseInt(density.getText().toString().trim());
             PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(w, h, metrics);
-            int normalized = limits.clamp(requested);
+            int normalized = limits.clamp(d);
+            int linkedW = PerAppCompat.linkedWidth(w, normalized);
+            int linkedH = PerAppCompat.linkedHeight(h, normalized);
             ProfileStore.Profile preview = new ProfileStore.Profile(packageName, w, h, normalized, true, true);
             PerAppCompat.Plan plan = PerAppCompat.build(preview, metrics);
-            String adjusted = requested == normalized ? "" : " • será limitado para " + normalized;
-            output.setText(limits.label() + adjusted + "\nDensidade Android equivalente da tarefa: ~" + plan.estimatedDensity);
-            output.setTextColor(requested == normalized ? GOOD : WARN);
+            String adjusted = d == normalized ? "" : " • limitado para " + normalized;
+            output.setText(limits.label() + adjusted
+                    + "\nResolução vinculada pela DPI: " + linkedW + " × " + linkedH
+                    + "\nAplicação Android aproximada: " + plan.estimatedWidth + " × " + plan.estimatedHeight);
+            output.setTextColor(d == normalized ? GOOD : WARN);
         } catch (Exception e) {
-            output.setText("Digite uma resolução e uma DPI Virtual válidas para calcular a faixa.");
+            output.setText("Digite resolução e DPI válidas para calcular o perfil.");
             output.setTextColor(MUTED);
         }
     }
@@ -381,9 +386,10 @@ public class MainActivity extends Activity {
             try {
                 ShizukuCore.execute(plan.command);
                 ProfileStore.save(this, profile);
+                ensureProfileMonitor();
                 runOnUiThread(() -> {
                     renderProfiles();
-                    Toast.makeText(this, "Resolução salva. A DPI Virtual será aplicada quando o app abrir.\n" + plan.summary, Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Perfil salvo. Abra o aplicativo para ativar DPI e Touch Engine.\n" + plan.summary, Toast.LENGTH_LONG).show();
                 });
             } catch (Exception e) {
                 String message = safeMessage(e);
@@ -398,7 +404,7 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 ShizukuCore.execute(plan.command);
-                runOnUiThread(() -> Toast.makeText(this, "Resolução reaplicada. Abra o app para aplicar a DPI Virtual • " + plan.summary, Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> Toast.makeText(this, "Resolução reaplicada. Abra o app para o Touch Engine.", Toast.LENGTH_LONG).show());
             } catch (Exception e) {
                 String message = safeMessage(e);
                 runOnUiThread(() -> Toast.makeText(this, "Falha ao reaplicar: " + message, Toast.LENGTH_LONG).show());
@@ -410,11 +416,12 @@ public class MainActivity extends Activity {
         if (!requireShizuku()) return;
         new Thread(() -> {
             try {
+                try { ShizukuCore.execute("leo touch-reset " + profile.packageName); } catch (Exception ignored) {}
                 ShizukuCore.execute(PerAppCompat.resetCommand(profile.packageName));
                 ProfileStore.delete(this, profile.packageName);
                 runOnUiThread(() -> {
                     renderProfiles();
-                    Toast.makeText(this, "Perfil removido • resolução e DPI restauradas", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Perfil removido e ajustes restaurados", Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 String message = safeMessage(e);
@@ -435,44 +442,50 @@ public class MainActivity extends Activity {
         DisplayMetrics metrics = getResources().getDisplayMetrics();
         for (ProfileStore.Profile profile : profiles) {
             LinearLayout box = card();
-            String labelName = profile.packageName;
+            String name = profile.packageName;
             try {
                 ApplicationInfo info = pm.getApplicationInfo(profile.packageName, 0);
-                labelName = pm.getApplicationLabel(info).toString();
+                name = pm.getApplicationLabel(info).toString();
             } catch (Exception ignored) {}
 
-            box.addView(text(labelName, 16, TEXT, true));
             PerAppCompat.Plan plan = PerAppCompat.build(profile, metrics);
-            PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(profile.width, profile.height, metrics);
-            TextView detail = text(
-                    profile.packageName +
-                            "\nResolução: " + profile.width + " × " + profile.height +
-                            "\nDPI Virtual: " + profile.density + " (faixa " + limits.minDpi + "–" + limits.maxDpi + ")" +
-                            "\nDensidade Android da tarefa: ~" + plan.estimatedDensity +
-                            "\nAplicação: " + plan.summary +
-                            "\nEstado: " + (profile.enabled ? "ATIVO • somente quando o app estiver em primeiro plano" : "PAUSADO"),
-                    12, MUTED, false
-            );
-            detail.setPadding(0, dp(3), 0, dp(10));
-            box.addView(detail);
+            box.addView(text(name, 16, TEXT, true));
+            box.addView(text(
+                    profile.packageName
+                            + "\nBase: " + profile.width + " × " + profile.height + " @ 400 DPI"
+                            + "\nDPI dedicada: " + profile.density
+                            + "\nEfetivo aproximado: " + plan.estimatedWidth + " × " + plan.estimatedHeight
+                            + "\nResposta rápida: " + (profile.fastTouch ? "ON" : "OFF")
+                            + " • Arrasto linear: " + (profile.linearDrag ? "ON" : "OFF")
+                            + " • Intensidade: " + profile.touchLevel
+                            + "\nEstado: " + (profile.enabled ? "ATIVO AO ABRIR O APP" : "PAUSADO"),
+                    12, MUTED, false));
+            box.addView(spacer(10));
 
-            LinearLayout firstRow = new LinearLayout(this);
-            firstRow.setOrientation(LinearLayout.HORIZONTAL);
-            firstRow.addView(button("EDITAR", v -> editProfile(profile.packageName)), new LinearLayout.LayoutParams(0, dp(44), 1f));
-            firstRow.addView(spacerHorizontal(8));
-            firstRow.addView(button("REAPLICAR RESOLUÇÃO", v -> reapplyProfile(profile)), new LinearLayout.LayoutParams(0, dp(44), 1f));
-            box.addView(firstRow);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.addView(button("EDITAR", v -> editProfile(profile.packageName)), new LinearLayout.LayoutParams(0, dp(44), 1f));
+            row.addView(spacerHorizontal(8));
+            row.addView(button("REAPLICAR", v -> reapplyProfile(profile)), new LinearLayout.LayoutParams(0, dp(44), 1f));
+            box.addView(row);
             box.addView(spacer(8));
             box.addView(button("REMOVER E RESTAURAR PADRÃO", v -> new AlertDialog.Builder(this)
                     .setTitle("Remover perfil?")
-                    .setMessage("O Shizuku vai remover a resolução individual e restaurar a DPI da tarefa de " + profile.packageName + ".")
+                    .setMessage("Resolução, DPI e Touch Engine de " + profile.packageName + " serão restaurados.")
                     .setPositiveButton("Remover", (d, w) -> removeProfile(profile))
-                    .setNegativeButton("Cancelar", null)
-                    .show()));
+                    .setNegativeButton("Cancelar", null).show()));
 
             profilesContainer.addView(box);
             profilesContainer.addView(spacer(9));
         }
+    }
+
+    private CheckBox check(String label, boolean checked) {
+        CheckBox box = new CheckBox(this);
+        box.setText(label);
+        box.setTextColor(TEXT);
+        box.setChecked(checked);
+        return box;
     }
 
     private String safeMessage(Throwable t) {
@@ -481,7 +494,8 @@ public class MainActivity extends Activity {
     }
 
     private void requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1001);
         }
     }
@@ -508,7 +522,8 @@ public class MainActivity extends Activity {
         bg.setStroke(dp(1), CARD_2);
         layout.setBackground(bg);
         layout.setElevation(dp(2));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = dp(4);
         layout.setLayoutParams(lp);
         return layout;

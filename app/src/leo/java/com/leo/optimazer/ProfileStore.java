@@ -37,7 +37,15 @@ public final class ProfileStore {
     }
 
     public static void save(Context context, Profile profile) {
-        String value = profile.width + "," + profile.height + "," + profile.density + "," + profile.restoreOnExit + "," + profile.enabled;
+        PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(
+                profile.width,
+                profile.height,
+                context.getResources().getDisplayMetrics()
+        );
+        int normalizedDensity = limits.clamp(profile.density);
+
+        String value = profile.width + "," + profile.height + "," + normalizedDensity + "," +
+                profile.restoreOnExit + "," + profile.enabled;
         prefs(context).edit().putString(PREFIX + profile.packageName, value).apply();
     }
 

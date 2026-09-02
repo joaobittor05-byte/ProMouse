@@ -31,6 +31,8 @@ public class MonitorService extends Service {
     private long nextCleanupAt = Long.MAX_VALUE;
     private String activeDpiPackage;
     private int activeTaskDensity = -1;
+    private int activeVirtualDpi = -1;
+    private long nextDensityVerificationAt = 0L;
 
     @Override
     public void onCreate() {
@@ -63,12 +65,10 @@ public class MonitorService extends Service {
             } else {
                 ShizukuCore.bindUserService();
                 try {
-                    profileText = syncForegroundProfile();
+                    profileText = syncForegroundProfile(now);
                 } catch (Exception e) {
                     profileText = "DPI por app indisponível: " + safeMessage(e);
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                            .putString(KEY_LAST_PROFILE_RESULT, profileText)
-                            .apply();
+                    saveProfileState(profileText);
                 }
 
                 if (sec < 10L) {
@@ -87,38 +87,91 @@ public class MonitorService extends Service {
         }
     };
 
-    private String syncForegroundProfile() throws Exception {
+    private String syncForegroundProfile(long now) throws Exception {
         String top = ShizukuCore.execute("leo top").trim();
         if (top.isEmpty()) return "Nenhum app detectado";
 
         if (activeDpiPackage != null && !activeDpiPackage.equals(top)) {
             try { ShizukuCore.execute("leo density-reset " + activeDpiPackage); } catch (Exception ignored) {}
-            activeDpiPackage = null;
-            activeTaskDensity = -1;
+            clearActiveDpi();
         }
 
         ProfileStore.Profile profile = ProfileStore.get(this, top);
         if (profile == null || !profile.enabled) {
-            return "Sistema intacto • " + shortName(top);
+            String state = "Sistema intacto • " + shortName(top);
+            saveProfileState(state);
+            return state;
         }
 
         PerAppCompat.Plan plan = PerAppCompat.build(profile, getResources().getDisplayMetrics());
         int wantedDensity = plan.estimatedDensity;
-        if (!top.equals(activeDpiPackage) || wantedDensity != activeTaskDensity) {
-            String result = ShizukuCore.execute("leo density " + top + " " + wantedDensity);
-            if (result.startsWith("TASK_DENSITY_OK") || result.startsWith("TASK_DENSITY_ALREADY")) {
-                activeDpiPackage = top;
-                activeTaskDensity = wantedDensity;
-                String state = "Perfil " + shortName(top) + " • DPI Virtual " + plan.normalizedDensity;
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putString(KEY_LAST_PROFILE_RESULT, state + " • Android " + wantedDensity)
-                        .apply();
+        boolean needsApply = !top.equals(activeDpiPackage) || wantedDensity != activeTaskDensity;
+
+        if (!needsApply && now >= nextDensityVerificationAt) {
+            String status = ShizukuCore.execute("leo density-status " + top);
+            if (!isVerified(status, wantedDensity)) {
+                needsApply = true;
+            } else {
+                nextDensityVerificationAt = now + 3000L;
+                String state = "DPI " + plan.normalizedDensity + " verificada • Android " + wantedDensity;
+                saveProfileState(state + "\n" + status);
                 return state;
             }
-            return "Perfil salvo • aguardando tarefa " + shortName(top);
         }
 
-        return "Perfil " + shortName(top) + " • DPI Virtual " + plan.normalizedDensity;
+        if (needsApply) {
+            String result = ShizukuCore.execute("leo density " + top + " " + wantedDensity);
+            if (isSuccess(result, wantedDensity)) {
+                activeDpiPackage = top;
+                activeTaskDensity = wantedDensity;
+                activeVirtualDpi = plan.normalizedDensity;
+                nextDensityVerificationAt = now + 2200L;
+                String state = "DPI Virtual " + plan.normalizedDensity
+                        + " aplicada e verificada • Android " + wantedDensity;
+                saveProfileState(state + "\n" + result);
+                return state;
+            }
+
+            if (result.startsWith("TASK_DENSITY_REJECTED")) {
+                clearActiveDpi();
+                String state = "Android/HyperOS rejeitou a DPI do app";
+                saveProfileState(state + "\n" + result);
+                return state;
+            }
+
+            String state = "Perfil salvo • aguardando tarefa " + shortName(top);
+            saveProfileState(state + "\n" + result);
+            return state;
+        }
+
+        String state = "DPI Virtual " + activeVirtualDpi + " ativa • Android " + activeTaskDensity;
+        return state;
+    }
+
+    private boolean isSuccess(String result, int wantedDensity) {
+        if (!(result.startsWith("TASK_DENSITY_OK") || result.startsWith("TASK_DENSITY_ALREADY"))) {
+            return false;
+        }
+        return result.contains("actual=" + wantedDensity) && result.contains("verified=true");
+    }
+
+    private boolean isVerified(String result, int wantedDensity) {
+        return result.startsWith("TASK_DENSITY_STATUS")
+                && result.contains("current=" + wantedDensity)
+                && result.contains("verified=true");
+    }
+
+    private void saveProfileState(String value) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_LAST_PROFILE_RESULT, value)
+                .apply();
+    }
+
+    private void clearActiveDpi() {
+        activeDpiPackage = null;
+        activeTaskDensity = -1;
+        activeVirtualDpi = -1;
+        nextDensityVerificationAt = 0L;
     }
 
     private void runAutomaticCleanup() {
@@ -210,8 +263,7 @@ public class MonitorService extends Service {
         if (activeDpiPackage != null && ShizukuCore.isReady()) {
             try { ShizukuCore.execute("leo density-reset " + activeDpiPackage); } catch (Exception ignored) {}
         }
-        activeDpiPackage = null;
-        activeTaskDensity = -1;
+        clearActiveDpi();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).apply();
         if (worker != null) worker.removeCallbacksAndMessages(null);
         if (workerThread != null) workerThread.quitSafely();

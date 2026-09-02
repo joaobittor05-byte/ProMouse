@@ -35,6 +35,7 @@ public class MonitorService extends Service {
     private int activeDedicatedDpi = -1;
     private long nextDensityVerificationAt = 0L;
     private String activeTouchPackage;
+    private String activeTouchSummary = "OFF";
     private long nextTouchRefreshAt = 0L;
 
     @Override
@@ -142,7 +143,7 @@ public class MonitorService extends Service {
 
             if (result.startsWith("TASK_DENSITY_REJECTED")) {
                 clearActiveDpi();
-                String state = "Android/HyperOS rejeitou a DPI • Touch " + touchState;
+                String state = "Android/ROM rejeitou a DPI • Touch " + touchState;
                 saveProfileState(state + "\n" + result);
                 return state;
             }
@@ -174,17 +175,27 @@ public class MonitorService extends Service {
             activeTouchPackage = top;
             nextTouchRefreshAt = now + 5000L;
             saveTouchState(result);
-
-            if (result.contains("XIAOMI_TOUCH_OK")) {
-                return profile.fastTouch && profile.linearDrag ? "RÁPIDO+SUAVE OEM" : "OEM ATIVO";
-            }
-            if (profile.fastTouch && result.contains("GAME_MODE=")) {
-                return profile.linearDrag ? "RÁPIDO • SUAVIZAÇÃO LIMITADA" : "RÁPIDO";
-            }
-            return "LIMITADO";
+            activeTouchSummary = summarizeTouchResult(result, profile.fastTouch, profile.linearDrag);
+            return activeTouchSummary;
         }
 
-        return profile.fastTouch && profile.linearDrag ? "RÁPIDO+LINEAR" : "ATIVO";
+        return activeTouchSummary;
+    }
+
+    private String summarizeTouchResult(String result, boolean fast, boolean linear) {
+        boolean universal = result.contains("TOUCH_ENGINE=UNIVERSAL_AOSP");
+        boolean smooth = result.contains("LINEAR_DRAG=AOSP_RESAMPLING_ACTIVE");
+        boolean romBlocked = result.contains("ROM_DISABLED_AOSP_RESAMPLING");
+        boolean fastPipeline = result.contains("FAST_TOUCH=AOSP_PERFORMANCE_PIPELINE");
+
+        if (fastPipeline && smooth && fast && linear) return "AOSP RÁPIDO+SUAVE";
+        if (smooth && linear) return "AOSP SUAVE";
+        if (fastPipeline && fast) return romBlocked && linear
+                ? "AOSP RÁPIDO • ARRASTO LIMITADO PELA ROM"
+                : "AOSP RÁPIDO";
+        if (romBlocked && linear) return "ARRASTO LIMITADO PELA ROM";
+        if (universal) return "AOSP ATIVO";
+        return "LIMITADO";
     }
 
     private boolean isSuccess(String result, int wantedDensity) {
@@ -215,6 +226,7 @@ public class MonitorService extends Service {
 
     private void clearActiveTouch() {
         activeTouchPackage = null;
+        activeTouchSummary = "OFF";
         nextTouchRefreshAt = 0L;
     }
 
@@ -271,7 +283,7 @@ public class MonitorService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Leo Optimazer", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Perfis de DPI/resolução, Touch Engine e RAM automática via Shizuku");
+            channel.setDescription("Perfis de DPI/resolução, Touch Engine universal e RAM automática via Shizuku");
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
@@ -286,7 +298,7 @@ public class MonitorService extends Service {
                 : new Notification.Builder(this);
 
         return builder
-                .setContentTitle("Leo Optimazer • Shizuku + Touch Engine")
+                .setContentTitle("Leo Optimazer • Shizuku + Touch AOSP")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
                 .setContentIntent(pending)

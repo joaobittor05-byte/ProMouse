@@ -2,21 +2,28 @@ package com.leo.optimazer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Touch Engine privilegiado executado dentro do UserService do Shizuku.
+ * Touch Engine universal executado dentro do UserService do Shizuku.
  *
- * O núcleo nunca injeta uma segunda sequência de toques por cima do toque físico.
- * Resposta rápida usa recursos reais da plataforma/OEM quando disponíveis.
- * Arrasto linear usa o HAL touchfeature da Xiaomi quando acessível ao UID shell/root;
- * em aparelhos sem esse recurso, o resultado informa explicitamente que a camada
- * de suavização de hardware não está disponível.
+ * Não depende de Game Turbo, Xiaomi, Samsung Game Booster ou qualquer HAL de fabricante.
+ * Usa apenas mecanismos AOSP/shell que podem existir em diferentes marcas:
+ *  - Game Mode performance por pacote (quando suportado pelo Android do aparelho);
+ *  - maior taxa de atualização disponível enquanto o perfil estiver em primeiro plano;
+ *  - resampling nativo do Android para suavidade do arrasto, quando habilitado pela ROM.
+ *
+ * O Shizuku em modo shell possui INJECT_EVENTS, mas não recebe de forma universal
+ * MONITOR_INPUT. Portanto o Leo não tenta duplicar/injetar uma segunda trajetória por cima
+ * do dedo físico. Um filtro real de coordenadas exige root/framework hook ou uma permissão
+ * de sistema que a ROM conceda explicitamente.
  */
 final class TouchEngineController {
+    private static final Pattern REFRESH_PATTERN = Pattern.compile(
+            "(?i)(?:refreshRate|vsyncRate|renderFrameRate|fps)\\s*[=:]\\s*([0-9]{2,3}(?:\\.[0-9]+)?)");
+
     private static String activePackage;
     private static String originalMinRefresh;
     private static String originalPeakRefresh;
@@ -32,64 +39,119 @@ final class TouchEngineController {
         StringBuilder out = new StringBuilder();
         activePackage = packageName;
 
+        append(out, "TOUCH_ENGINE=UNIVERSAL_AOSP");
+        append(out, "VENDOR_DEPENDENCY=NONE");
+
         if (fastTouch) {
-            append(out, "GAME_MODE=" + runAllowFailure("cmd game mode performance " + packageName));
-            append(out, applyRefreshLock());
+            String gameMode = runAllowFailure("cmd game mode performance " + packageName);
+            append(out, "AOSP_GAME_MODE=" + gameMode);
+            append(out, applyRefreshLock(level));
+            append(out, "FAST_TOUCH=AOSP_PERFORMANCE_PIPELINE");
         } else {
-            append(out, "GAME_MODE=normal");
+            append(out, "FAST_TOUCH=OFF");
         }
 
-        String vendor = XiaomiTouch.apply(fastTouch, linearDrag, level);
-        append(out, vendor);
-
-        if (linearDrag && !vendor.contains("XIAOMI_TOUCH_OK")) {
-            append(out, "LINEAR_DRAG=LIMITED_NO_RAW_INTERCEPT");
-        } else if (linearDrag) {
-            append(out, "LINEAR_DRAG=OEM_SMOOTHING_ACTIVE");
+        if (linearDrag) {
+            append(out, linearDragStatus());
         } else {
             append(out, "LINEAR_DRAG=OFF");
         }
 
-        append(out, "FAST_TOUCH=" + (fastTouch ? "ON" : "OFF"));
         append(out, "LEVEL=" + level);
         return out.toString();
     }
 
     static synchronized String reset(String packageName) {
         StringBuilder out = new StringBuilder();
-        append(out, "GAME_MODE=" + runAllowFailure("cmd game mode standard " + packageName));
+        append(out, "AOSP_GAME_MODE=" + runAllowFailure("cmd game mode standard " + packageName));
         append(out, restoreRefreshLock());
-        append(out, XiaomiTouch.reset());
         if (packageName.equals(activePackage)) activePackage = null;
         append(out, "TOUCH_ENGINE=RESTORED");
         return out.toString();
     }
 
-    private static String applyRefreshLock() {
+    /**
+     * O Android faz resampling de coordenadas no InputConsumer para alinhar o movimento
+     * ao VSYNC. Em builds atuais, ro.input.noresample=1 desliga esse comportamento.
+     * Como a propriedade ro.* é somente leitura em builds de produção, o Shizuku não deve
+     * fingir que consegue ativá-la quando a ROM a desabilitou.
+     */
+    private static String linearDragStatus() {
+        String noResample = shellValue("getprop ro.input.noresample");
+        if ("1".equals(noResample)) {
+            return "LINEAR_DRAG=ROM_DISABLED_AOSP_RESAMPLING • ROOT_FRAMEWORK_REQUIRED";
+        }
+
+        String legacy = shellValue("getprop ro.input.resampling");
+        if ("0".equals(legacy)) {
+            return "LINEAR_DRAG=ROM_DISABLED_AOSP_RESAMPLING • ROOT_FRAMEWORK_REQUIRED";
+        }
+
+        String monitorPermission = runAllowFailure(
+                "cmd package check-permission android.permission.MONITOR_INPUT com.android.shell");
+        boolean monitorGranted = monitorPermission.toLowerCase().contains("granted");
+
+        if (monitorGranted) {
+            return "LINEAR_DRAG=AOSP_RESAMPLING_ACTIVE • RAW_MONITOR_AVAILABLE";
+        }
+        return "LINEAR_DRAG=AOSP_RESAMPLING_ACTIVE • RAW_MONITOR_UNAVAILABLE";
+    }
+
+    private static String applyRefreshLock(int level) {
         if (!refreshCaptured) {
             originalMinRefresh = shellValue("settings get system min_refresh_rate");
             originalPeakRefresh = shellValue("settings get system peak_refresh_rate");
             refreshCaptured = true;
         }
 
-        Float peak = parsePositiveFloat(originalPeakRefresh);
-        if (peak == null || peak < 60f) {
-            return "REFRESH_LOCK=UNCHANGED";
+        float max = detectMaxRefreshRate();
+        if (max < 60f) {
+            Float original = parsePositiveFloat(originalPeakRefresh);
+            max = original == null ? 60f : original;
         }
 
-        String a = runAllowFailure("settings put system peak_refresh_rate " + trimFloat(peak));
-        String b = runAllowFailure("settings put system min_refresh_rate " + trimFloat(peak));
-        return "REFRESH_LOCK=" + trimFloat(peak) + "Hz peak:" + a + " min:" + b;
+        // Intensidade baixa não precisa forçar o teto. A partir de 50, usa o maior modo.
+        float target;
+        if (level >= 50) {
+            target = max;
+        } else {
+            target = 60f + (Math.max(60f, max) - 60f) * (level / 50f);
+        }
+        target = Math.max(60f, Math.min(max, target));
+
+        String targetText = trimFloat(target);
+        String peak = runAllowFailure("settings put system peak_refresh_rate " + targetText);
+        String min = runAllowFailure("settings put system min_refresh_rate " + targetText);
+        return "REFRESH_PRIORITY=" + targetText + "Hz peak:" + peak + " min:" + min
+                + " max_detected=" + trimFloat(max) + "Hz";
+    }
+
+    private static float detectMaxRefreshRate() {
+        String dump = runAllowFailure("dumpsys display");
+        if (dump.startsWith("ERR:")) return -1f;
+
+        float best = -1f;
+        Matcher matcher = REFRESH_PATTERN.matcher(dump);
+        while (matcher.find()) {
+            try {
+                float value = Float.parseFloat(matcher.group(1));
+                if (value >= 30f && value <= 360f && value > best) best = value;
+            } catch (Exception ignored) {}
+        }
+
+        Float configured = parsePositiveFloat(originalPeakRefresh);
+        if (configured != null && configured > best && configured <= 360f) best = configured;
+        return best;
     }
 
     private static String restoreRefreshLock() {
-        if (!refreshCaptured) return "REFRESH_LOCK=NO_BASELINE";
-        String a = restoreSetting("peak_refresh_rate", originalPeakRefresh);
-        String b = restoreSetting("min_refresh_rate", originalMinRefresh);
+        if (!refreshCaptured) return "REFRESH_RESTORE=NO_BASELINE";
+        String peak = restoreSetting("peak_refresh_rate", originalPeakRefresh);
+        String min = restoreSetting("min_refresh_rate", originalMinRefresh);
         refreshCaptured = false;
         originalPeakRefresh = null;
         originalMinRefresh = null;
-        return "REFRESH_RESTORE=peak:" + a + " min:" + b;
+        return "REFRESH_RESTORE=peak:" + peak + " min:" + min;
     }
 
     private static String restoreSetting(String key, String value) {
@@ -101,13 +163,15 @@ final class TouchEngineController {
 
     private static String shellValue(String command) {
         String value = runAllowFailure(command);
-        if (value.startsWith("ERR:")) return "null";
+        if (value.startsWith("ERR:")) return "";
+        if ("null".equalsIgnoreCase(value.trim())) return "";
         return value.trim();
     }
 
     private static Float parsePositiveFloat(String value) {
         try {
-            float f = Float.parseFloat(value);
+            if (value == null || value.trim().isEmpty()) return null;
+            float f = Float.parseFloat(value.trim());
             return f > 0f ? f : null;
         } catch (Exception ignored) {
             return null;
@@ -116,7 +180,7 @@ final class TouchEngineController {
 
     private static String trimFloat(float value) {
         if (Math.abs(value - Math.round(value)) < 0.001f) return String.valueOf(Math.round(value));
-        return String.valueOf(value);
+        return String.format(java.util.Locale.US, "%.2f", value);
     }
 
     private static void append(StringBuilder out, String value) {
@@ -132,186 +196,17 @@ final class TouchEngineController {
                     .start();
             ByteArrayOutputStream buffer = new ByteArrayOutputStream();
             try (InputStream in = process.getInputStream()) {
-                byte[] chunk = new byte[2048];
+                byte[] chunk = new byte[4096];
                 int n;
                 while ((n = in.read(chunk)) >= 0) buffer.write(chunk, 0, n);
             }
             int code = process.waitFor();
             String text = buffer.toString(StandardCharsets.UTF_8.name()).trim();
-            if (code != 0) return "ERR:" + code + (text.isEmpty() ? "" : ":" + text);
+            if (code != 0) return "ERR:" + code + (text.isEmpty() ? "" : ":" + text.replace('\n', ' '));
             return text.isEmpty() ? "OK" : text.replace('\n', ' ');
         } catch (Exception e) {
             String message = e.getMessage();
-            return "ERR:" + (message == null ? e.getClass().getSimpleName() : message);
-        }
-    }
-
-    /** Best-effort Xiaomi/POCO Game Turbo touch HAL bridge. */
-    private static final class XiaomiTouch {
-        private static final String[] DESCRIPTORS = {
-                "vendor.xiaomi.hw.touchfeature@1.0::ITouchFeature",
-                "vendor.xiaomi.hardware.touchfeature@1.0::ITouchFeature"
-        };
-        private static final int TOUCH_ID = 0;
-        private static final int[] MODES = {0, 1, 2, 3, 7};
-        private static final Map<Integer, Integer> BASELINE = new HashMap<>();
-        private static Object binder;
-        private static String descriptor;
-
-        static String apply(boolean fastTouch, boolean linearDrag, int level) {
-            try {
-                if (!connect()) return "XIAOMI_TOUCH_UNAVAILABLE=service_not_found";
-                captureBaseline();
-
-                // MIUI/HyperOS Game Turbo ativa os modos 0/1 ao entrar em jogo.
-                setMode(0, 1);
-                setMode(1, 1);
-
-                if (fastTouch) setScaledMode(2, level);
-                if (linearDrag) setScaledMode(3, level);
-
-                // Valor observado no caminho de Game Turbo para manter o touch em estado gaming.
-                try { setMode(7, 2); } catch (Throwable ignored) {}
-
-                int cur2 = getCurrent(2);
-                int cur3 = getCurrent(3);
-                return "XIAOMI_TOUCH_OK mode2=" + cur2 + " mode3=" + cur3;
-            } catch (Throwable t) {
-                binder = null;
-                descriptor = null;
-                return "XIAOMI_TOUCH_UNAVAILABLE=" + safeMessage(t);
-            }
-        }
-
-        static String reset() {
-            if (BASELINE.isEmpty()) return "XIAOMI_TOUCH_RESET=no_baseline";
-            try {
-                if (!connect()) return "XIAOMI_TOUCH_RESET=service_not_found";
-                for (Map.Entry<Integer, Integer> e : BASELINE.entrySet()) {
-                    try { setMode(e.getKey(), e.getValue()); } catch (Throwable ignored) {}
-                }
-                BASELINE.clear();
-                return "XIAOMI_TOUCH_RESET=OK";
-            } catch (Throwable t) {
-                return "XIAOMI_TOUCH_RESET=" + safeMessage(t);
-            }
-        }
-
-        private static void captureBaseline() throws Exception {
-            if (!BASELINE.isEmpty()) return;
-            for (int mode : MODES) {
-                try { BASELINE.put(mode, getCurrent(mode)); } catch (Throwable ignored) {}
-            }
-        }
-
-        private static void setScaledMode(int mode, int level) throws Exception {
-            int min = getMin(mode);
-            int max = getMax(mode);
-            if (max < min) {
-                int t = min; min = max; max = t;
-            }
-            int value = min + Math.round((max - min) * (level / 100f));
-            setMode(mode, value);
-        }
-
-        private static boolean connect() throws Exception {
-            if (binder != null && descriptor != null) return true;
-            Class<?> hwBinder = Class.forName("android.os.HwBinder");
-            for (String candidate : DESCRIPTORS) {
-                Object service = null;
-                try {
-                    Method get = hwBinder.getDeclaredMethod("getService", String.class, String.class);
-                    get.setAccessible(true);
-                    service = get.invoke(null, candidate, "default");
-                } catch (NoSuchMethodException ignored) {
-                    Method get = hwBinder.getDeclaredMethod("getService", String.class, String.class, boolean.class);
-                    get.setAccessible(true);
-                    service = get.invoke(null, candidate, "default", false);
-                } catch (Throwable ignored) {}
-                if (service != null) {
-                    binder = service;
-                    descriptor = candidate;
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private static int getCurrent(int mode) throws Exception { return transactRead(1, mode); }
-        private static int getMax(int mode) throws Exception { return transactRead(3, mode); }
-        private static int getMin(int mode) throws Exception { return transactRead(4, mode); }
-
-        private static int transactRead(int code, int mode) throws Exception {
-            Object request = newParcel();
-            Object reply = newParcel();
-            try {
-                parcelMethod(request, "writeInterfaceToken", String.class).invoke(request, descriptor);
-                parcelMethod(request, "writeInt32", int.class).invoke(request, TOUCH_ID);
-                parcelMethod(request, "writeInt32", int.class).invoke(request, mode);
-                transact(code, request, reply);
-                verify(reply, request);
-                return (Integer) parcelMethod(reply, "readInt32").invoke(reply);
-            } finally {
-                releaseParcel(request);
-                releaseParcel(reply);
-            }
-        }
-
-        private static void setMode(int mode, int value) throws Exception {
-            Object request = newParcel();
-            Object reply = newParcel();
-            try {
-                parcelMethod(request, "writeInterfaceToken", String.class).invoke(request, descriptor);
-                parcelMethod(request, "writeInt32", int.class).invoke(request, TOUCH_ID);
-                parcelMethod(request, "writeInt32", int.class).invoke(request, mode);
-                parcelMethod(request, "writeInt32", int.class).invoke(request, value);
-                transact(8, request, reply);
-                verify(reply, request);
-                parcelMethod(reply, "readInt32").invoke(reply);
-            } finally {
-                releaseParcel(request);
-                releaseParcel(reply);
-            }
-        }
-
-        private static Object newParcel() throws Exception {
-            Class<?> clazz = Class.forName("android.os.HwParcel");
-            return clazz.getDeclaredConstructor().newInstance();
-        }
-
-        private static Method parcelMethod(Object parcel, String name, Class<?>... types) throws Exception {
-            Method m = parcel.getClass().getDeclaredMethod(name, types);
-            m.setAccessible(true);
-            return m;
-        }
-
-        private static void transact(int code, Object request, Object reply) throws Exception {
-            Method target = null;
-            for (Method m : binder.getClass().getMethods()) {
-                if ("transact".equals(m.getName()) && m.getParameterTypes().length == 4) {
-                    target = m;
-                    break;
-                }
-            }
-            if (target == null) throw new NoSuchMethodException("HwBinder.transact");
-            target.setAccessible(true);
-            target.invoke(binder, code, request, reply, 0);
-        }
-
-        private static void verify(Object reply, Object request) throws Exception {
-            try { parcelMethod(reply, "verifySuccess").invoke(reply); } catch (NoSuchMethodException ignored) {}
-            try { parcelMethod(request, "releaseTemporaryStorage").invoke(request); } catch (NoSuchMethodException ignored) {}
-        }
-
-        private static void releaseParcel(Object parcel) {
-            try { parcelMethod(parcel, "release").invoke(parcel); } catch (Throwable ignored) {}
-        }
-
-        private static String safeMessage(Throwable t) {
-            Throwable c = t;
-            while (c.getCause() != null && c.getCause() != c) c = c.getCause();
-            String m = c.getMessage();
-            return m == null || m.trim().isEmpty() ? c.getClass().getSimpleName() : m.replace('\n', ' ');
+            return "ERR:" + (message == null ? e.getClass().getSimpleName() : message.replace('\n', ' '));
         }
     }
 }

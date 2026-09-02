@@ -14,12 +14,14 @@ import java.util.Map;
 public final class ProfileStore {
     private static final String PREFS = "leo_profiles";
     private static final String PREFIX = "profile:";
+    private static final String KEY_DPI_MODEL_V11 = "dpi_model_v11";
 
     public static final class Profile {
         public final String packageName;
+        /** Resolução-base usada quando a DPI dedicada está em 400. */
         public final int width;
         public final int height;
-        /** DPI Virtual do Leo (estilo mouse): 800 = padrão, 1600 = 2x, etc. */
+        /** DPI Android dedicada do aplicativo. 400 = padrão de referência do Leo. */
         public final int density;
         public final boolean restoreOnExit;
         public final boolean enabled;
@@ -37,32 +39,49 @@ public final class ProfileStore {
     private ProfileStore() {}
 
     private static SharedPreferences prefs(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        migrateDpiModelIfNeeded(prefs);
+        return prefs;
+    }
+
+    private static void migrateDpiModelIfNeeded(SharedPreferences prefs) {
+        if (prefs.getBoolean(KEY_DPI_MODEL_V11, false)) return;
+
+        SharedPreferences.Editor editor = prefs.edit();
+        for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+            if (!entry.getKey().startsWith(PREFIX) || !(entry.getValue() instanceof String)) continue;
+            String raw = (String) entry.getValue();
+            try {
+                String[] p = raw.split(",", -1);
+                if (p.length != 5) continue;
+                int oldDpi = Integer.parseInt(p[2]);
+
+                // Alpha7–10: 800 era o padrão virtual. Converte para 400 Android.
+                // Valores antigos já próximos da faixa Android (ex.: 411) são preservados.
+                int migrated = oldDpi >= 600 ? Math.round(oldDpi / 2f) : oldDpi;
+                migrated = Math.max(PerAppCompat.MIN_DEDICATED_DPI,
+                        Math.min(PerAppCompat.MAX_DEDICATED_DPI, migrated));
+
+                String value = p[0] + "," + p[1] + "," + migrated + "," + p[3] + "," + p[4];
+                editor.putString(entry.getKey(), value);
+            } catch (Exception ignored) {}
+        }
+        editor.putBoolean(KEY_DPI_MODEL_V11, true).apply();
     }
 
     public static void save(Context context, Profile profile) {
         DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-        int requestedVirtualDpi = profile.density;
-
-        // Migração simples das builds antigas: o antigo campo podia vir preenchido
-        // exatamente com a densidade Android do aparelho. No modelo novo, o padrão é 800.
-        if (requestedVirtualDpi == metrics.densityDpi) {
-            requestedVirtualDpi = PerAppCompat.VIRTUAL_DPI_BASE;
-        }
-
         PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(
                 profile.width,
                 profile.height,
                 metrics
         );
-        int normalizedVirtualDpi = limits.clamp(requestedVirtualDpi);
+        int normalizedDpi = limits.clamp(profile.density);
 
-        String value = profile.width + "," + profile.height + "," + normalizedVirtualDpi + "," +
+        String value = profile.width + "," + profile.height + "," + normalizedDpi + "," +
                 profile.restoreOnExit + "," + profile.enabled;
         prefs(context).edit().putString(PREFIX + profile.packageName, value).apply();
 
-        // A DPI é aplicada quando o app entra em primeiro plano. Portanto o monitor
-        // precisa existir mesmo quando a limpeza automática de RAM estiver desligada.
         if (profile.enabled) ensureMonitor(context);
     }
 

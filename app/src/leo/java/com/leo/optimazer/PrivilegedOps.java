@@ -25,12 +25,12 @@ public final class PrivilegedOps {
         return hasWriteSecureSettings() && hasUsageAccess();
     }
 
-    private boolean hasWriteSecureSettings() {
+    public boolean hasWriteSecureSettings() {
         return context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
                 == PackageManager.PERMISSION_GRANTED;
     }
 
-    private boolean hasUsageAccess() {
+    public boolean hasUsageAccess() {
         AppOpsManager appOps = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
         if (appOps == null) return false;
         int mode = appOps.checkOpNoThrow(
@@ -47,7 +47,7 @@ public final class PrivilegedOps {
     }
 
     public String send(String raw) throws Exception {
-        if (!isActivated()) throw new SecurityException("Permissões Brevent não concedidas");
+        if (!isActivated()) throw new SecurityException("Ativação Brevent incompleta");
         String[] parts = raw.trim().split("\\s+");
         String op = parts[0].toUpperCase();
 
@@ -71,7 +71,7 @@ public final class PrivilegedOps {
             case "RESET_DENSITY":
                 return exec("wm", "density", "reset");
             case "KILL_CACHED":
-                throw new UnsupportedOperationException("Limpeza global de RAM exige shell ativo");
+                throw new UnsupportedOperationException("Limpeza global de RAM exige bridge shell ativo");
             default:
                 throw new SecurityException("Operação não permitida: " + op);
         }

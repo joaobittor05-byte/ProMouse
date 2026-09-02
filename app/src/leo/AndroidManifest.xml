@@ -4,9 +4,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
-    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
-    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
 
     <application
         android:name=".LeoApplication"
@@ -33,7 +30,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Monitoramento local de perfis de desempenho iniciados pelo usuário" />
+                android:value="Temporizador de limpeza de RAM solicitado pelo usuário usando Shizuku" />
         </service>
     </application>
 </manifest>

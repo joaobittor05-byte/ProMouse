@@ -11,9 +11,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url "https://jitpack.io" }
     }
 }
 
-rootProject.name = "ProMouse"
+rootProject.name = "LeoOptimazer"
 include ':app'

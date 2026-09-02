@@ -10,16 +10,21 @@ android {
         applicationId 'com.leo.optimazer'
         minSdk 26
         targetSdk 35
-        versionCode 4
-        versionName '1.0.0-alpha4-perapp-real'
+        versionCode 5
+        versionName '1.0.0-alpha5-shizuku-core'
     }
 
     sourceSets {
         main {
             manifest.srcFile 'src/leo/AndroidManifest.xml'
             java.srcDirs = ['src/leo/java']
+            aidl.srcDirs = ['src/leo/aidl']
             res.srcDirs = ['src/leo/res']
         }
+    }
+
+    buildFeatures {
+        aidl true
     }
 
     buildTypes {
@@ -36,4 +41,7 @@ android {
 }
 
 dependencies {
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+    implementation 'androidx.annotation:annotation:1.9.1'
 }

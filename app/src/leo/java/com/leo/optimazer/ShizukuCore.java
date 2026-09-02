@@ -11,7 +11,7 @@ import rikka.shizuku.Shizuku;
 
 public final class ShizukuCore {
     public static final int REQUEST_CODE = 4105;
-    private static final int USER_SERVICE_VERSION = 8;
+    private static final int USER_SERVICE_VERSION = 10;
     private static final long BIND_TIMEOUT_MS = 5000L;
     private static final Object LOCK = new Object();
 

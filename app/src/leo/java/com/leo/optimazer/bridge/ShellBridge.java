@@ -69,13 +69,13 @@ public final class ShellBridge {
                 return exec("wm", "density");
             case "SET_SIZE": {
                 if (parts.length != 3) throw new IllegalArgumentException("SET_SIZE width height");
-                int w = parseRange(parts[1], 320, 4320, "width");
+                int w = parseRange(parts[1], 320, 7680, "width");
                 int h = parseRange(parts[2], 320, 7680, "height");
                 return exec("wm", "size", w + "x" + h);
             }
             case "SET_DENSITY": {
                 if (parts.length != 2) throw new IllegalArgumentException("SET_DENSITY density");
-                int d = parseRange(parts[1], 120, 1000, "density");
+                int d = parseRange(parts[1], 80, 4000, "density");
                 return exec("wm", "density", String.valueOf(d));
             }
             case "RESET_SIZE":

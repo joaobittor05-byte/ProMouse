@@ -1,14 +1,11 @@
 package com.leo.optimazer;
 
 import android.app.Activity;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -16,6 +13,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import rikka.shizuku.Shizuku;
 
 public class ActivationActivity extends Activity {
     private static final int BG = Color.rgb(10, 13, 18);
@@ -25,22 +24,44 @@ public class ActivationActivity extends Activity {
     private static final int MUTED = Color.rgb(155, 168, 184);
     private static final int GOOD = Color.rgb(96, 211, 148);
     private static final int BAD = Color.rgb(255, 112, 112);
+    private static final int WARN = Color.rgb(255, 193, 92);
 
-    private TextView secureStatus;
-    private TextView usageStatus;
+    private TextView managerStatus;
+    private TextView serverStatus;
+    private TextView permissionStatus;
+    private TextView coreStatus;
     private Button continueButton;
+
+    private final Shizuku.OnRequestPermissionResultListener permissionListener = (requestCode, grantResult) -> {
+        if (requestCode != ShizukuCore.REQUEST_CODE) return;
+        if (grantResult == PackageManager.PERMISSION_GRANTED) {
+            ShizukuCore.bindUserService();
+            Toast.makeText(this, "Permissão do Shizuku concedida", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "Permissão do Shizuku negada", Toast.LENGTH_LONG).show();
+        }
+        refreshStatus();
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Shizuku.addRequestPermissionResultListener(permissionListener);
         buildUi();
-        refreshStatus(false);
+        refreshStatus();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        refreshStatus(false);
+        refreshStatus();
+        if (ShizukuCore.hasPermission()) ShizukuCore.bindUserService();
+    }
+
+    @Override
+    protected void onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(permissionListener);
+        super.onDestroy();
     }
 
     private void buildUi() {
@@ -53,34 +74,39 @@ public class ActivationActivity extends Activity {
         root.setPadding(dp(22), dp(28), dp(22), dp(40));
         scroll.addView(root, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = text("LEO OPTIMAZER", 28, TEXT, true);
-        root.addView(title);
-
-        TextView subtitle = text("Ativação pelo Brevent", 15, MUTED, false);
+        root.addView(text("LEO OPTIMAZER", 28, TEXT, true));
+        TextView subtitle = text("Núcleo principal • Shizuku", 15, MUTED, false);
         subtitle.setPadding(0, dp(3), 0, dp(22));
         root.addView(subtitle);
 
         LinearLayout card = card();
-        secureStatus = text("● Permissão avançada: verificando…", 16, TEXT, true);
-        usageStatus = text("● Acesso ao uso: verificando…", 16, TEXT, true);
-        usageStatus.setPadding(0, dp(10), 0, 0);
-        card.addView(secureStatus);
-        card.addView(usageStatus);
+        managerStatus = text("● Shizuku: verificando…", 15, TEXT, true);
+        serverStatus = text("● Serviço: verificando…", 15, TEXT, true);
+        permissionStatus = text("● Permissão: verificando…", 15, TEXT, true);
+        coreStatus = text("● Núcleo Leo: verificando…", 15, TEXT, true);
+        serverStatus.setPadding(0, dp(9), 0, 0);
+        permissionStatus.setPadding(0, dp(9), 0, 0);
+        coreStatus.setPadding(0, dp(9), 0, 0);
+        card.addView(managerStatus);
+        card.addView(serverStatus);
+        card.addView(permissionStatus);
+        card.addView(coreStatus);
 
         TextView explanation = text(
-                "1. Copie o código abaixo e execute no terminal/comandos do Brevent.\n\n" +
-                "2. Depois libere o Acesso ao uso para o Leo Optimazer. Isso permite detectar qual aplicativo está aberto e aplicar o perfil certo.\n\n" +
-                "Não é necessário conectar o celular ao PC para esse modo.",
+                "O Shizuku é agora o núcleo principal do Leo Optimazer. Quando ele estiver iniciado, o Leo recebe autorização uma vez e usa um UserService privilegiado para executar limpeza de RAM e perfis individuais silenciosamente.\n\n" +
+                "Sem root, o Shizuku precisa ser iniciado novamente depois que o celular reiniciar. Com root/Sui, o núcleo pode iniciar com privilégios root.",
                 13, MUTED, false
         );
         explanation.setPadding(0, dp(18), 0, dp(14));
         card.addView(explanation);
 
-        card.addView(button("COPIAR CÓDIGO DO BREVENT", v -> copyBreventCommand()));
+        card.addView(button("ABRIR SHIZUKU", v -> openShizuku()));
         card.addView(spacer(9));
-        card.addView(button("ABRIR ACESSO AO USO", v -> openUsageAccess()));
+        card.addView(button("SOLICITAR PERMISSÃO AO SHIZUKU", v -> requestShizukuPermission()));
         card.addView(spacer(9));
-        card.addView(button("VERIFICAR ATIVAÇÃO", v -> refreshStatus(true)));
+        card.addView(button("CONECTAR NÚCLEO LEO", v -> connectCore()));
+        card.addView(spacer(9));
+        card.addView(button("VERIFICAR ESTADO", v -> refreshStatus()));
         root.addView(card);
 
         continueButton = button("ENTRAR NO LEO OPTIMAZER", v -> openMain());
@@ -88,70 +114,84 @@ public class ActivationActivity extends Activity {
         continueLp.topMargin = dp(18);
         root.addView(continueButton, continueLp);
 
-        TextView commandPreview = text(
-                "Código Brevent:\npm grant com.leo.optimazer android.permission.WRITE_SECURE_SETTINGS",
+        TextView note = text(
+                "Brevent permanece apenas como alternativa de emergência. As funções automáticas desta versão usam o Shizuku.",
                 12, MUTED, false
         );
-        commandPreview.setPadding(0, dp(18), 0, 0);
-        root.addView(commandPreview);
+        note.setPadding(0, dp(16), 0, 0);
+        root.addView(note);
 
         setContentView(scroll);
     }
 
-    private void refreshStatus(boolean showMessage) {
-        PrivilegedOps ops = new PrivilegedOps(this);
-        boolean secure = ops.hasWriteSecureSettings();
-        boolean usage = ops.hasUsageAccess();
+    private void refreshStatus() {
+        boolean installed = ShizukuCore.isManagerInstalled();
+        boolean alive = ShizukuCore.isBinderAlive();
+        boolean permission = ShizukuCore.hasPermission();
+        boolean ready = ShizukuCore.isReady();
 
-        secureStatus.setText(secure
-                ? "● BREVENT: PERMISSÃO CONCEDIDA"
-                : "● BREVENT: PERMISSÃO NÃO CONCEDIDA");
-        secureStatus.setTextColor(secure ? GOOD : BAD);
+        managerStatus.setText(installed ? "● SHIZUKU INSTALADO" : "● SHIZUKU NÃO INSTALADO");
+        managerStatus.setTextColor(installed ? GOOD : BAD);
 
-        usageStatus.setText(usage
-                ? "● ACESSO AO USO: LIBERADO"
-                : "● ACESSO AO USO: PENDENTE");
-        usageStatus.setTextColor(usage ? GOOD : BAD);
+        serverStatus.setText(alive ? "● SERVIÇO SHIZUKU EM EXECUÇÃO" : "● SERVIÇO SHIZUKU PARADO");
+        serverStatus.setTextColor(alive ? GOOD : WARN);
 
-        continueButton.setEnabled(secure && usage);
-        continueButton.setAlpha((secure && usage) ? 1f : 0.45f);
+        permissionStatus.setText(permission ? "● LEO AUTORIZADO NO SHIZUKU" : "● PERMISSÃO DO LEO PENDENTE");
+        permissionStatus.setTextColor(permission ? GOOD : BAD);
 
-        if (showMessage) {
-            if (secure && usage) {
-                Toast.makeText(this, "Ativação concluída", Toast.LENGTH_SHORT).show();
-            } else if (!secure) {
-                Toast.makeText(this, "Execute primeiro o código no Brevent", Toast.LENGTH_LONG).show();
-            } else {
-                Toast.makeText(this, "Falta liberar o Acesso ao uso", Toast.LENGTH_LONG).show();
-            }
+        if (ready) {
+            int uid = ShizukuCore.getServiceUid();
+            coreStatus.setText(uid == 0 ? "● NÚCLEO LEO ATIVO • ROOT" : "● NÚCLEO LEO ATIVO • SHELL");
+            coreStatus.setTextColor(GOOD);
+        } else {
+            coreStatus.setText(permission ? "● NÚCLEO LEO CONECTANDO…" : "● NÚCLEO LEO AGUARDANDO AUTORIZAÇÃO");
+            coreStatus.setTextColor(permission ? WARN : BAD);
         }
+
+        continueButton.setEnabled(permission && alive);
+        continueButton.setAlpha((permission && alive) ? 1f : 0.45f);
     }
 
-    private void copyBreventCommand() {
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText(
-                "Ativação Leo Optimazer via Brevent",
-                PrivilegedOps.breventActivationCommand()
-        ));
-        Toast.makeText(this, "Código do Brevent copiado", Toast.LENGTH_SHORT).show();
-    }
-
-    private void openUsageAccess() {
+    private void openShizuku() {
         try {
-            Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
-            intent.setData(Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
+            Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
+            if (launch == null) throw new IllegalStateException();
+            startActivity(launch);
         } catch (Exception e) {
-            startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+            Toast.makeText(this, "Instale o Shizuku primeiro", Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void requestShizukuPermission() {
+        try {
+            ShizukuCore.requestPermission();
+            if (ShizukuCore.hasPermission()) {
+                ShizukuCore.bindUserService();
+                Toast.makeText(this, "Permissão já concedida", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, e.getMessage() == null ? "Shizuku não está ativo" : e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+        refreshStatus();
+    }
+
+    private void connectCore() {
+        if (!ShizukuCore.hasPermission()) {
+            requestShizukuPermission();
+            return;
+        }
+        ShizukuCore.bindUserService();
+        Toast.makeText(this, "Conectando núcleo Shizuku…", Toast.LENGTH_SHORT).show();
+        refreshStatus();
     }
 
     private void openMain() {
-        PrivilegedOps ops = new PrivilegedOps(this);
-        if (!ops.isActivated()) {
-            refreshStatus(true);
+        if (!ShizukuCore.hasPermission() || !ShizukuCore.isBinderAlive()) {
+            Toast.makeText(this, "Inicie e autorize o Shizuku primeiro", Toast.LENGTH_LONG).show();
+            refreshStatus();
             return;
         }
+        ShizukuCore.bindUserService();
         startActivity(new Intent(this, MainActivity.class));
     }
 

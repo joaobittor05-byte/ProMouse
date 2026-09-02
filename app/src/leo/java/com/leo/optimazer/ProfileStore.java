@@ -2,6 +2,7 @@ package com.leo.optimazer;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.DisplayMetrics;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -16,6 +17,7 @@ public final class ProfileStore {
         public final String packageName;
         public final int width;
         public final int height;
+        /** DPI virtual do Leo (estilo mouse): 800 = padrão, 1600 = 2x, etc. */
         public final int density;
         public final boolean restoreOnExit;
         public final boolean enabled;
@@ -37,14 +39,24 @@ public final class ProfileStore {
     }
 
     public static void save(Context context, Profile profile) {
+        DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        int requestedVirtualDpi = profile.density;
+
+        // Compatibilidade com a tela/editor das builds anteriores: se o campo vier
+        // exatamente com a densidade Android atual, isso representa o padrão do aparelho.
+        // No novo modelo o padrão é mostrado como 800 DPI virtual.
+        if (requestedVirtualDpi == metrics.densityDpi) {
+            requestedVirtualDpi = PerAppCompat.VIRTUAL_DPI_BASE;
+        }
+
         PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(
                 profile.width,
                 profile.height,
-                context.getResources().getDisplayMetrics()
+                metrics
         );
-        int normalizedDensity = limits.clamp(profile.density);
+        int normalizedVirtualDpi = limits.clamp(requestedVirtualDpi);
 
-        String value = profile.width + "," + profile.height + "," + normalizedDensity + "," +
+        String value = profile.width + "," + profile.height + "," + normalizedVirtualDpi + "," +
                 profile.restoreOnExit + "," + profile.enabled;
         prefs(context).edit().putString(PREFIX + profile.packageName, value).apply();
     }

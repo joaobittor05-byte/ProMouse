@@ -12,8 +12,6 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.text.InputType;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
@@ -41,9 +39,7 @@ public class MainActivity extends Activity {
     private static final int ACCENT = Color.rgb(99, 179, 255);
     private static final int GOOD = Color.rgb(96, 211, 148);
     private static final int BAD = Color.rgb(255, 112, 112);
-
-    private static final String KEY_RAM_PENDING = "ram_brevent_pending";
-    private static final String KEY_RAM_BEFORE = "ram_brevent_before";
+    private static final int WARN = Color.rgb(255, 193, 92);
 
     private LinearLayout profilesContainer;
     private TextView activationStatus;
@@ -55,14 +51,15 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         buildUi();
         requestNotificationPermission();
+        ShizukuCore.bindUserService();
         refreshAll();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        ShizukuCore.bindUserService();
         refreshAll();
-        finishPendingRamMeasurement();
     }
 
     private void buildUi() {
@@ -76,53 +73,42 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         root.addView(text("LEO OPTIMAZER", 27, TEXT, true));
-        TextView subtitle = text("Brevent Core • escala REAL por aplicativo", 14, MUTED, false);
+        TextView subtitle = text("Shizuku Core • perfis individuais + RAM automática", 14, MUTED, false);
         subtitle.setPadding(0, dp(2), 0, dp(18));
         root.addView(subtitle);
 
         LinearLayout statusCard = card();
-        activationStatus = text("Verificando Brevent…", 16, TEXT, true);
+        activationStatus = text("Verificando núcleo Shizuku…", 16, TEXT, true);
         statusCard.addView(activationStatus);
         statusCard.addView(spacer(10));
-        statusCard.addView(button("VERIFICAR ATIVAÇÃO", v -> refreshActivationStatus()));
+        statusCard.addView(button("VERIFICAR SHIZUKU", v -> refreshActivationStatus()));
         statusCard.addView(spacer(8));
-        statusCard.addView(button("GERENCIAR ATIVAÇÃO BREVENT", v -> startActivity(new Intent(this, ActivationActivity.class))));
-        TextView hint = text("Os perfis novos não usam mais wm size/wm density global. O Leo usa a escala de compatibilidade por pacote do Android através do Brevent.", 12, MUTED, false);
+        statusCard.addView(button("GERENCIAR SHIZUKU", v -> startActivity(new Intent(this, ActivationActivity.class))));
+        TextView hint = text("O Leo não usa wm size/wm density global. Os perfis usam a escala de compatibilidade do Android por pacote e são aplicados silenciosamente pelo UserService do Shizuku.", 12, MUTED, false);
         hint.setPadding(0, dp(10), 0, 0);
         statusCard.addView(hint);
         root.addView(statusCard);
 
-        root.addView(sectionTitle("SERVIÇO DE INTERVALO"));
-        LinearLayout serviceCard = card();
-        TextView serviceInfo = text("Os perfis individuais ficam gravados no Android e não precisam deste serviço. O serviço mantém o temporizador de RAM; a limpeza privilegiada é confirmada pelo Brevent.", 12, MUTED, false);
-        serviceInfo.setPadding(0, 0, 0, dp(10));
-        serviceCard.addView(serviceInfo);
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.addView(button("INICIAR", v -> startOptimizer()), new LinearLayout.LayoutParams(0, dp(48), 1f));
-        row.addView(spacerHorizontal(8));
-        row.addView(button("PARAR", v -> stopOptimizer()), new LinearLayout.LayoutParams(0, dp(48), 1f));
-        serviceCard.addView(row);
-        root.addView(serviceCard);
-
-        root.addView(sectionTitle("LIMPEZA REAL DE RAM"));
+        root.addView(sectionTitle("LIMPEZA AUTOMÁTICA DE RAM"));
         LinearLayout ramCard = card();
         ramInfo = text("RAM: —", 15, TEXT, true);
         ramCard.addView(ramInfo);
         ramCard.addView(spacer(10));
-        ramCard.addView(text("O botão abaixo executa am kill-all como shell através do Brevent. Apps em primeiro plano não são encerrados.", 12, MUTED, false));
+        ramCard.addView(text("A limpeza usa am kill-all dentro do núcleo Shizuku (UID shell/root). Não precisa abrir o Brevent nem confirmar a cada execução.", 12, MUTED, false));
         ramCard.addView(spacer(10));
         ramCard.addView(text("Intervalo em segundos (0 = desligado, mínimo 10s)", 12, MUTED, false));
         intervalInput = editText("0");
         intervalInput.setInputType(InputType.TYPE_CLASS_NUMBER);
         ramCard.addView(intervalInput, matchWrap());
         ramCard.addView(spacer(8));
-        ramCard.addView(button("SALVAR INTERVALO", v -> saveInterval()));
+        ramCard.addView(button("SALVAR INTERVALO E INICIAR", v -> saveIntervalAndStart()));
         ramCard.addView(spacer(8));
-        ramCard.addView(button("LIMPAR RAM AGORA PELO BREVENT", v -> cleanRamNow()));
+        ramCard.addView(button("LIMPAR RAM AGORA", v -> cleanRamNow()));
+        ramCard.addView(spacer(8));
+        ramCard.addView(button("PARAR LIMPEZA AUTOMÁTICA", v -> stopOptimizer()));
         root.addView(ramCard);
 
-        root.addView(sectionTitle("PERFIS INDIVIDUAIS REAIS"));
+        root.addView(sectionTitle("PERFIS INDIVIDUAIS"));
         root.addView(button("+ ADICIONAR APLICATIVO", v -> chooseApplication()),
                 new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
         root.addView(spacer(10));
@@ -131,7 +117,10 @@ public class MainActivity extends Activity {
         profilesContainer.setOrientation(LinearLayout.VERTICAL);
         root.addView(profilesContainer, matchWrap());
 
-        TextView safety = text("Cada perfil usa am compat somente no pacote selecionado. O display do sistema e os outros aplicativos não recebem wm size/wm density.", 12, MUTED, false);
+        TextView safety = text(
+                "Cada perfil é gravado para o pacote selecionado. O Android aplica resolução lógica e densidade pela escala individual mais próxima suportada; resolução e DPI não são dois controles totalmente independentes no modo compat. O restante do sistema permanece no padrão.",
+                12, MUTED, false
+        );
         safety.setPadding(0, dp(16), 0, 0);
         root.addView(safety);
 
@@ -147,77 +136,92 @@ public class MainActivity extends Activity {
     }
 
     private void refreshActivationStatus() {
-        PrivilegedOps ops = new PrivilegedOps(this);
-        boolean permissionActive = ops.isActivated();
-        boolean commandApi = BreventCommand.isAvailable(this);
-        boolean active = permissionActive && commandApi;
-        activationStatus.setText(active
-                ? "● BREVENT ATIVADO • COMMAND API OK"
-                : "● BREVENT INCOMPLETO");
-        activationStatus.setTextColor(active ? GOOD : BAD);
+        boolean alive = ShizukuCore.isBinderAlive();
+        boolean permission = ShizukuCore.hasPermission();
+        boolean ready = ShizukuCore.isReady();
+
+        if (ready) {
+            int uid = ShizukuCore.getServiceUid();
+            activationStatus.setText(uid == 0 ? "● SHIZUKU ROOT ATIVO" : "● SHIZUKU SHELL ATIVO");
+            activationStatus.setTextColor(GOOD);
+        } else if (permission && alive) {
+            activationStatus.setText("● SHIZUKU AUTORIZADO • CONECTANDO NÚCLEO");
+            activationStatus.setTextColor(WARN);
+            ShizukuCore.bindUserService();
+        } else if (alive) {
+            activationStatus.setText("● SHIZUKU ATIVO • PERMISSÃO PENDENTE");
+            activationStatus.setTextColor(BAD);
+        } else {
+            activationStatus.setText("● SHIZUKU PARADO");
+            activationStatus.setTextColor(BAD);
+        }
     }
 
-    private void startOptimizer() {
-        Intent intent = new Intent(this, MonitorService.class);
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
-        Toast.makeText(this, "Temporizador iniciado", Toast.LENGTH_SHORT).show();
+    private boolean requireShizuku() {
+        if (!ShizukuCore.isBinderAlive() || !ShizukuCore.hasPermission()) {
+            Toast.makeText(this, "Inicie e autorize o Shizuku primeiro", Toast.LENGTH_LONG).show();
+            startActivity(new Intent(this, ActivationActivity.class));
+            return false;
+        }
+        ShizukuCore.bindUserService();
+        return true;
     }
 
-    private void stopOptimizer() {
-        stopService(new Intent(this, MonitorService.class));
-        Toast.makeText(this, "Temporizador parado", Toast.LENGTH_SHORT).show();
-    }
-
-    private void saveInterval() {
+    private void saveIntervalAndStart() {
         try {
             long sec = Long.parseLong(intervalInput.getText().toString().trim());
-            if (sec != 0 && sec < 10) {
+            if (sec != 0 && sec < 10L) {
                 Toast.makeText(this, "Use 0 ou pelo menos 10 segundos", Toast.LENGTH_LONG).show();
                 return;
             }
+
             getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
                     .putLong(MonitorService.KEY_INTERVAL_SEC, sec)
                     .apply();
-            Toast.makeText(this, sec == 0 ? "Intervalo desativado" : "Intervalo salvo: " + sec + "s", Toast.LENGTH_SHORT).show();
+
+            if (sec == 0L) {
+                stopOptimizer();
+                Toast.makeText(this, "Limpeza automática desativada", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (!requireShizuku()) return;
+            Intent intent = new Intent(this, MonitorService.class);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
+            Toast.makeText(this, "Limpeza automática: a cada " + sec + "s", Toast.LENGTH_SHORT).show();
         } catch (NumberFormatException e) {
             Toast.makeText(this, "Intervalo inválido", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private void cleanRamNow() {
-        if (!BreventCommand.isAvailable(this)) {
-            Toast.makeText(this, "Brevent Command não foi encontrado", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        long before = availableMemoryMb();
-        getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
-                .putBoolean(KEY_RAM_PENDING, true)
-                .putLong(KEY_RAM_BEFORE, before)
-                .apply();
-
-        if (!BreventCommand.execute(this, BreventCommand.ramCleanupCommand())) {
-            getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit().putBoolean(KEY_RAM_PENDING, false).apply();
-            Toast.makeText(this, "Não foi possível abrir o executor do Brevent", Toast.LENGTH_LONG).show();
-        }
+    private void stopOptimizer() {
+        stopService(new Intent(this, MonitorService.class));
+        Toast.makeText(this, "Limpeza automática parada", Toast.LENGTH_SHORT).show();
     }
 
-    private void finishPendingRamMeasurement() {
-        SharedPreferences prefs = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE);
-        if (!prefs.getBoolean(KEY_RAM_PENDING, false)) return;
-        long before = prefs.getLong(KEY_RAM_BEFORE, availableMemoryMb());
-        prefs.edit().putBoolean(KEY_RAM_PENDING, false).apply();
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            long after = availableMemoryMb();
-            long freed = Math.max(0L, after - before);
-            getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
-                    .putLong(MonitorService.KEY_LAST_CLEANUP, System.currentTimeMillis())
-                    .putLong(MonitorService.KEY_LAST_FREED_MB, freed)
-                    .apply();
-            refreshMemory();
-            Toast.makeText(this, "Brevent executado • RAM disponível: " + after + " MB (Δ +" + freed + " MB)", Toast.LENGTH_LONG).show();
-        }, 700L);
+    private void cleanRamNow() {
+        if (!requireShizuku()) return;
+        new Thread(() -> {
+            long before = availableMemoryMb();
+            try {
+                ShizukuCore.execute("am kill-all");
+                Thread.sleep(500L);
+                long after = availableMemoryMb();
+                long freed = Math.max(0L, after - before);
+                getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
+                        .putLong(MonitorService.KEY_LAST_CLEANUP, System.currentTimeMillis())
+                        .putLong(MonitorService.KEY_LAST_FREED_MB, freed)
+                        .putString(MonitorService.KEY_LAST_CLEANUP_RESULT, "SHIZUKU_OK")
+                        .apply();
+                runOnUiThread(() -> {
+                    refreshMemory();
+                    Toast.makeText(this, "Limpeza Shizuku concluída • +" + freed + " MB disponíveis", Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception e) {
+                String message = safeMessage(e);
+                runOnUiThread(() -> Toast.makeText(this, "Falha Shizuku: " + message, Toast.LENGTH_LONG).show());
+            }
+        }, "Leo-Shizuku-Ram").start();
     }
 
     private void refreshMemory() {
@@ -225,8 +229,9 @@ public class MainActivity extends Activity {
         long available = availableMemoryMb();
         long lastFreed = prefs.getLong(MonitorService.KEY_LAST_FREED_MB, 0L);
         long last = prefs.getLong(MonitorService.KEY_LAST_CLEANUP, 0L);
+        String result = prefs.getString(MonitorService.KEY_LAST_CLEANUP_RESULT, "—");
         String lastText = last == 0 ? "ainda não executada" : android.text.format.DateFormat.format("HH:mm:ss", last).toString();
-        ramInfo.setText("Disponível: " + available + " MB\nÚltima limpeza: " + lastText + " • variação: +" + lastFreed + " MB");
+        ramInfo.setText("Disponível: " + available + " MB\nÚltima limpeza: " + lastText + " • Δ +" + lastFreed + " MB\nEstado: " + result);
     }
 
     private long availableMemoryMb() {
@@ -285,7 +290,7 @@ public class MainActivity extends Activity {
         form.addView(width);
         form.addView(label("Resolução alvo — altura"));
         form.addView(height);
-        form.addView(label("DPI alvo (o Android usa a escala individual mais próxima)"));
+        form.addView(label("DPI alvo — o Android usa a escala individual compatível mais próxima"));
         form.addView(density);
         form.addView(enabled);
 
@@ -297,11 +302,11 @@ public class MainActivity extends Activity {
                         int w = Integer.parseInt(width.getText().toString().trim());
                         int h = Integer.parseInt(height.getText().toString().trim());
                         int d = Integer.parseInt(density.getText().toString().trim());
-                        if (w < 320 || w > 7680 || h < 320 || h > 7680 || d < 80 || d > 4000) throw new IllegalArgumentException();
+                        if (w < 320 || w > 7680 || h < 320 || h > 7680 || d < 80 || d > 4000) {
+                            throw new IllegalArgumentException();
+                        }
                         ProfileStore.Profile profile = new ProfileStore.Profile(packageName, w, h, d, true, enabled.isChecked());
-                        ProfileStore.save(this, profile);
-                        renderProfiles();
-                        applyProfile(profile);
+                        applyAndSaveProfile(profile);
                     } catch (Exception e) {
                         Toast.makeText(this, "Use resolução 320–7680 e DPI 80–4000", Toast.LENGTH_LONG).show();
                     }
@@ -310,22 +315,53 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void applyProfile(ProfileStore.Profile profile) {
+    private void applyAndSaveProfile(ProfileStore.Profile profile) {
+        if (!requireShizuku()) return;
         PerAppCompat.Plan plan = PerAppCompat.build(profile, getResources().getDisplayMetrics());
-        if (!BreventCommand.execute(this, plan.command)) {
-            Toast.makeText(this, "Brevent Command não disponível", Toast.LENGTH_LONG).show();
-            return;
-        }
-        Toast.makeText(this, plan.summary + " • o app será fechado para aplicar", Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            try {
+                ShizukuCore.execute(plan.command);
+                ProfileStore.save(this, profile);
+                runOnUiThread(() -> {
+                    renderProfiles();
+                    Toast.makeText(this, "Perfil aplicado pelo Shizuku\n" + plan.summary, Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception e) {
+                String message = safeMessage(e);
+                runOnUiThread(() -> Toast.makeText(this, "Não foi possível aplicar: " + message, Toast.LENGTH_LONG).show());
+            }
+        }, "Leo-Apply-Profile").start();
+    }
+
+    private void reapplyProfile(ProfileStore.Profile profile) {
+        if (!requireShizuku()) return;
+        PerAppCompat.Plan plan = PerAppCompat.build(profile, getResources().getDisplayMetrics());
+        new Thread(() -> {
+            try {
+                ShizukuCore.execute(plan.command);
+                runOnUiThread(() -> Toast.makeText(this, "Perfil reaplicado • " + plan.summary, Toast.LENGTH_LONG).show());
+            } catch (Exception e) {
+                String message = safeMessage(e);
+                runOnUiThread(() -> Toast.makeText(this, "Falha ao reaplicar: " + message, Toast.LENGTH_LONG).show());
+            }
+        }, "Leo-Reapply-Profile").start();
     }
 
     private void removeProfile(ProfileStore.Profile profile) {
-        String reset = PerAppCompat.resetCommand(profile.packageName);
-        ProfileStore.delete(this, profile.packageName);
-        renderProfiles();
-        if (!BreventCommand.execute(this, reset)) {
-            Toast.makeText(this, "Perfil local removido. Abra o Brevent para restaurar a escala do pacote.", Toast.LENGTH_LONG).show();
-        }
+        if (!requireShizuku()) return;
+        new Thread(() -> {
+            try {
+                ShizukuCore.execute(PerAppCompat.resetCommand(profile.packageName));
+                ProfileStore.delete(this, profile.packageName);
+                runOnUiThread(() -> {
+                    renderProfiles();
+                    Toast.makeText(this, "Perfil removido e app restaurado", Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                String message = safeMessage(e);
+                runOnUiThread(() -> Toast.makeText(this, "Não foi possível restaurar: " + message, Toast.LENGTH_LONG).show());
+            }
+        }, "Leo-Remove-Profile").start();
     }
 
     private void renderProfiles() {
@@ -348,26 +384,38 @@ public class MainActivity extends Activity {
 
             box.addView(text(labelName, 16, TEXT, true));
             PerAppCompat.Plan plan = PerAppCompat.build(profile, metrics);
-            TextView detail = text(profile.packageName + "\nAlvo: " + profile.width + " × " + profile.height + " • " + profile.density + " DPI\n" + plan.summary + " • " + (profile.enabled ? "ATIVO" : "PAUSADO"), 12, MUTED, false);
+            TextView detail = text(
+                    profile.packageName +
+                            "\nAlvo: " + profile.width + " × " + profile.height + " • " + profile.density + " DPI" +
+                            "\nAplicação: " + plan.summary +
+                            "\nEstado: " + (profile.enabled ? "ATIVO" : "PAUSADO"),
+                    12, MUTED, false
+            );
             detail.setPadding(0, dp(3), 0, dp(10));
             box.addView(detail);
 
-            box.addView(button("APLICAR NO BREVENT", v -> applyProfile(profile)), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-            box.addView(spacer(7));
-            LinearLayout actions = new LinearLayout(this);
-            actions.setOrientation(LinearLayout.HORIZONTAL);
-            actions.addView(button("EDITAR", v -> editProfile(profile.packageName)), new LinearLayout.LayoutParams(0, dp(44), 1f));
-            actions.addView(spacerHorizontal(8));
-            actions.addView(button("REMOVER + RESTAURAR", v -> new AlertDialog.Builder(this)
+            LinearLayout firstRow = new LinearLayout(this);
+            firstRow.setOrientation(LinearLayout.HORIZONTAL);
+            firstRow.addView(button("EDITAR", v -> editProfile(profile.packageName)), new LinearLayout.LayoutParams(0, dp(44), 1f));
+            firstRow.addView(spacerHorizontal(8));
+            firstRow.addView(button("REAPLICAR", v -> reapplyProfile(profile)), new LinearLayout.LayoutParams(0, dp(44), 1f));
+            box.addView(firstRow);
+            box.addView(spacer(8));
+            box.addView(button("REMOVER E RESTAURAR PADRÃO", v -> new AlertDialog.Builder(this)
                     .setTitle("Remover perfil?")
-                    .setMessage("Também vou mandar o Brevent restaurar a escala padrão somente de " + profile.packageName)
+                    .setMessage("O Shizuku vai remover a escala individual de " + profile.packageName + " e restaurar o comportamento padrão do Android.")
                     .setPositiveButton("Remover", (d, w) -> removeProfile(profile))
                     .setNegativeButton("Cancelar", null)
-                    .show()), new LinearLayout.LayoutParams(0, dp(44), 1f));
-            box.addView(actions);
+                    .show()));
+
             profilesContainer.addView(box);
             profilesContainer.addView(spacer(9));
         }
+    }
+
+    private String safeMessage(Throwable t) {
+        String message = t.getMessage();
+        return message == null || message.trim().isEmpty() ? t.getClass().getSimpleName() : message;
     }
 
     private void requestNotificationPermission() {

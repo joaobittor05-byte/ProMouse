@@ -61,6 +61,9 @@ public class LeoShizukuService extends ILeoShell.Stub {
         if (p.length == 3 && "leo".equals(p[0]) && "density-reset".equals(p[1])
                 && validPackage(p[2])) return;
 
+        if (p.length == 3 && "leo".equals(p[0]) && "density-status".equals(p[1])
+                && validPackage(p[2])) return;
+
         if (p.length == 2 && "am".equals(p[0]) && "kill-all".equals(p[1])) return;
 
         if (p.length == 3 && "am".equals(p[0]) && "force-stop".equals(p[1]) && validPackage(p[2])) return;
@@ -89,6 +92,8 @@ public class LeoShizukuService extends ILeoShell.Stub {
                     return TaskDensityController.apply(p[2], Integer.parseInt(p[3]));
                 case "density-reset":
                     return TaskDensityController.reset(p[2]);
+                case "density-status":
+                    return TaskDensityController.status(p[2]);
                 default:
                     throw new SecurityException("Operação Leo não permitida");
             }

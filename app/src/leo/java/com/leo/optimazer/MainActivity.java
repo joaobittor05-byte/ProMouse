@@ -4,9 +4,6 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
@@ -43,9 +40,8 @@ public class MainActivity extends Activity {
     private static final int GOOD = Color.rgb(96, 211, 148);
     private static final int BAD = Color.rgb(255, 112, 112);
 
-    private LinearLayout root;
     private LinearLayout profilesContainer;
-    private TextView bridgeStatus;
+    private TextView activationStatus;
     private TextView ramInfo;
     private EditText intervalInput;
 
@@ -68,25 +64,24 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(BG);
 
-        root = new LinearLayout(this);
+        LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(20), dp(18), dp(40));
         scroll.addView(root, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView title = text("LEO OPTIMAZER", 27, TEXT, true);
-        root.addView(title);
-        TextView subtitle = text("ADB Shell Core • perfis por aplicativo", 14, MUTED, false);
+        root.addView(text("LEO OPTIMAZER", 27, TEXT, true));
+        TextView subtitle = text("Brevent Core • perfis por aplicativo", 14, MUTED, false);
         subtitle.setPadding(0, dp(2), 0, dp(18));
         root.addView(subtitle);
 
         LinearLayout statusCard = card();
-        bridgeStatus = text("Verificando bridge ADB…", 16, TEXT, true);
-        statusCard.addView(bridgeStatus);
+        activationStatus = text("Verificando ativação Brevent…", 16, TEXT, true);
+        statusCard.addView(activationStatus);
         statusCard.addView(spacer(10));
-        statusCard.addView(button("VERIFICAR ATIVAÇÃO", v -> refreshBridgeStatus()));
+        statusCard.addView(button("VERIFICAR ATIVAÇÃO", v -> refreshActivationStatus()));
         statusCard.addView(spacer(8));
-        statusCard.addView(button("COPIAR ATIVAÇÃO ADB (CMD)", v -> copyActivationCommand()));
-        TextView hint = text("Execute o comando no Prompt de Comando do Windows com o celular conectado por USB e Depuração USB ativa. A ativação precisa ser refeita após reiniciar o aparelho.", 12, MUTED, false);
+        statusCard.addView(button("GERENCIAR ATIVAÇÃO BREVENT", v -> startActivity(new Intent(this, ActivationActivity.class))));
+        TextView hint = text("O modo principal usa as permissões concedidas pelo Brevent. Não é necessário manter um Bridge ADB rodando.", 12, MUTED, false);
         hint.setPadding(0, dp(10), 0, 0);
         statusCard.addView(hint);
         root.addView(statusCard);
@@ -121,8 +116,8 @@ public class MainActivity extends Activity {
         root.addView(ramCard);
 
         root.addView(sectionTitle("PERFIS POR APLICATIVO"));
-        Button addProfile = button("+ ADICIONAR APLICATIVO", v -> chooseApplication());
-        root.addView(addProfile, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        root.addView(button("+ ADICIONAR APLICATIVO", v -> chooseApplication()),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
         root.addView(spacer(10));
 
         profilesContainer = new LinearLayout(this);
@@ -139,42 +134,29 @@ public class MainActivity extends Activity {
     private void refreshAll() {
         SharedPreferences prefs = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE);
         intervalInput.setText(String.valueOf(prefs.getLong(MonitorService.KEY_INTERVAL_SEC, 0L)));
-        refreshBridgeStatus();
+        refreshActivationStatus();
         refreshMemory();
         renderProfiles();
     }
 
-    private void refreshBridgeStatus() {
-        bridgeStatus.setText("Verificando bridge ADB…");
-        bridgeStatus.setTextColor(TEXT);
-        new Thread(() -> {
-            boolean alive = BridgeClient.isAlive();
-            runOnUiThread(() -> {
-                bridgeStatus.setText(alive ? "● ADB SHELL ATIVADO" : "● ADB SHELL NÃO ATIVADO");
-                bridgeStatus.setTextColor(alive ? GOOD : BAD);
-            });
-        }, "Leo-Bridge-Check").start();
-    }
-
-    private void copyActivationCommand() {
-        String command = BridgeClient.activationCommandForWindowsCmd();
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText("Ativação Leo Optimazer", command));
-        Toast.makeText(this, "Comando ADB copiado", Toast.LENGTH_SHORT).show();
+    private void refreshActivationStatus() {
+        PrivilegedOps ops = new PrivilegedOps(this);
+        boolean active = ops.isActivated();
+        activationStatus.setText(active ? "● BREVENT ATIVADO" : "● ATIVAÇÃO BREVENT INCOMPLETA");
+        activationStatus.setTextColor(active ? GOOD : BAD);
     }
 
     private void startOptimizer() {
-        new Thread(() -> {
-            if (!BridgeClient.isAlive()) {
-                runOnUiThread(() -> Toast.makeText(this, "Ative primeiro pelo ADB USB", Toast.LENGTH_LONG).show());
-                return;
-            }
-            runOnUiThread(() -> {
-                Intent intent = new Intent(this, MonitorService.class);
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
-                Toast.makeText(this, "Leo Optimazer iniciado", Toast.LENGTH_SHORT).show();
-            });
-        }).start();
+        PrivilegedOps ops = new PrivilegedOps(this);
+        if (!ops.isActivated()) {
+            Toast.makeText(this, "Conclua a ativação pelo Brevent e libere o Acesso ao uso", Toast.LENGTH_LONG).show();
+            startActivity(new Intent(this, ActivationActivity.class));
+            return;
+        }
+
+        Intent intent = new Intent(this, MonitorService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
+        Toast.makeText(this, "Leo Optimazer iniciado", Toast.LENGTH_SHORT).show();
     }
 
     private void stopOptimizer() {
@@ -206,8 +188,8 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             long before = availableMemoryMb();
             try {
-                BridgeClient.send("KILL_CACHED");
-                Thread.sleep(400L);
+                String result = BridgeClient.send("KILL_CACHED");
+                Thread.sleep(500L);
                 long after = availableMemoryMb();
                 long freed = Math.max(0, after - before);
                 getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
@@ -219,7 +201,8 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, "Limpeza concluída • +" + freed + " MB disponíveis", Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> Toast.makeText(this, "Bridge ADB não está ativo", Toast.LENGTH_LONG).show());
+                String message = e.getMessage() == null ? "Não foi possível limpar a RAM" : e.getMessage();
+                runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_LONG).show());
             }
         }, "Leo-Ram-Clean").start();
     }
@@ -243,7 +226,7 @@ public class MainActivity extends Activity {
     private void chooseApplication() {
         new Thread(() -> {
             PackageManager pm = getPackageManager();
-            List<ApplicationInfo> all = pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0));
+            List<ApplicationInfo> all = pm.getInstalledApplications(0);
             List<ApplicationInfo> launchable = new ArrayList<>();
             for (ApplicationInfo info : all) {
                 if (info.packageName.equals(getPackageName())) continue;
@@ -285,11 +268,11 @@ public class MainActivity extends Activity {
         enabled.setTextColor(TEXT);
         enabled.setChecked(existing == null || existing.enabled);
 
-        form.addView(label("Largura (px)"));
+        form.addView(label("Largura (320 a 7680 px)"));
         form.addView(width);
-        form.addView(label("Altura (px)"));
+        form.addView(label("Altura (320 a 7680 px)"));
         form.addView(height);
-        form.addView(label("DPI"));
+        form.addView(label("DPI (80 a 4000 — ex.: 1600)"));
         form.addView(density);
         form.addView(enabled);
 
@@ -301,11 +284,14 @@ public class MainActivity extends Activity {
                         int w = Integer.parseInt(width.getText().toString().trim());
                         int h = Integer.parseInt(height.getText().toString().trim());
                         int d = Integer.parseInt(density.getText().toString().trim());
-                        if (w < 320 || h < 320 || d < 120 || d > 1000) throw new IllegalArgumentException();
+                        if (w < 320 || w > 7680 || h < 320 || h > 7680 || d < 80 || d > 4000) {
+                            throw new IllegalArgumentException();
+                        }
                         ProfileStore.save(this, new ProfileStore.Profile(packageName, w, h, d, true, enabled.isChecked()));
                         renderProfiles();
+                        Toast.makeText(this, "Perfil salvo: " + w + " × " + h + " • " + d + " DPI", Toast.LENGTH_SHORT).show();
                     } catch (Exception e) {
-                        Toast.makeText(this, "Valores de resolução/DPI inválidos", Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, "Use resolução entre 320–7680 px e DPI entre 80–4000", Toast.LENGTH_LONG).show();
                     }
                 })
                 .setNegativeButton("Cancelar", null)
@@ -316,8 +302,7 @@ public class MainActivity extends Activity {
         profilesContainer.removeAllViews();
         List<ProfileStore.Profile> profiles = ProfileStore.all(this);
         if (profiles.isEmpty()) {
-            TextView empty = text("Nenhum perfil criado.", 14, MUTED, false);
-            profilesContainer.addView(empty);
+            profilesContainer.addView(text("Nenhum perfil criado.", 14, MUTED, false));
             return;
         }
 
@@ -330,8 +315,7 @@ public class MainActivity extends Activity {
                 labelName = pm.getApplicationLabel(info).toString();
             } catch (Exception ignored) {}
 
-            TextView name = text(labelName, 16, TEXT, true);
-            box.addView(name);
+            box.addView(text(labelName, 16, TEXT, true));
             TextView detail = text(profile.packageName + "\n" + profile.width + " × " + profile.height + " • " + profile.density + " DPI • " + (profile.enabled ? "ATIVO" : "PAUSADO"), 12, MUTED, false);
             detail.setPadding(0, dp(3), 0, dp(10));
             box.addView(detail);

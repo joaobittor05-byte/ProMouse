@@ -11,7 +11,7 @@ import rikka.shizuku.Shizuku;
 
 public final class ShizukuCore {
     public static final int REQUEST_CODE = 4105;
-    private static final int USER_SERVICE_VERSION = 10;
+    private static final int USER_SERVICE_VERSION = 12;
     private static final long BIND_TIMEOUT_MS = 5000L;
     private static final Object LOCK = new Object();
 
@@ -25,8 +25,7 @@ public final class ShizukuCore {
     private ShizukuCore() {}
 
     private static final ServiceConnection CONNECTION = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder binder) {
+        @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             service = ILeoShell.Stub.asInterface(binder);
             binding = false;
             bindStartedAt = 0L;
@@ -34,8 +33,7 @@ public final class ShizukuCore {
             synchronized (LOCK) { LOCK.notifyAll(); }
         }
 
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
+        @Override public void onServiceDisconnected(ComponentName name) {
             service = null;
             binding = false;
             bindStartedAt = 0L;
@@ -119,7 +117,8 @@ public final class ShizukuCore {
     }
 
     public static boolean isBinding() {
-        if (binding && bindStartedAt > 0L && SystemClock.elapsedRealtime() - bindStartedAt > BIND_TIMEOUT_MS) {
+        if (binding && bindStartedAt > 0L
+                && SystemClock.elapsedRealtime() - bindStartedAt > BIND_TIMEOUT_MS) {
             binding = false;
             bindStartedAt = 0L;
             lastBindError = "Tempo limite ao conectar UserService";
@@ -133,11 +132,7 @@ public final class ShizukuCore {
 
     public static int getBackendUid() {
         if (!isBinderAlive()) return -1;
-        try {
-            return Shizuku.getUid();
-        } catch (Throwable ignored) {
-            return -1;
-        }
+        try { return Shizuku.getUid(); } catch (Throwable ignored) { return -1; }
     }
 
     public static void requestPermission() {
@@ -209,8 +204,7 @@ public final class ShizukuCore {
         if (local == null) {
             String detail = getLastBindError();
             throw new IllegalStateException(detail.isEmpty()
-                    ? "UserService do Shizuku não conectou"
-                    : detail);
+                    ? "UserService do Shizuku não conectou" : detail);
         }
         return local.execute(command);
     }
@@ -218,11 +212,7 @@ public final class ShizukuCore {
     public static int getServiceUid() {
         ILeoShell local = service;
         if (local == null) return -1;
-        try {
-            return local.getServiceUid();
-        } catch (Exception ignored) {
-            return -1;
-        }
+        try { return local.getServiceUid(); } catch (Exception ignored) { return -1; }
     }
 
     public static String statusLabel() {
@@ -242,6 +232,7 @@ public final class ShizukuCore {
         Throwable cause = t;
         while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
         String message = cause.getMessage();
-        return message == null || message.trim().isEmpty() ? cause.getClass().getSimpleName() : message;
+        return message == null || message.trim().isEmpty()
+                ? cause.getClass().getSimpleName() : message;
     }
 }

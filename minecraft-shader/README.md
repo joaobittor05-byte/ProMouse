@@ -1,21 +1,30 @@
-# Realistic Universal Shader — Bedrock
+# Realistic Universal Shader v0.3.0 — Integrated Realism
 
-Projeto novo, reconstruído do zero para Minecraft Bedrock / Pocket Edition usando o pipeline oficial Vibrant Visuals/PBR.
+Continuação direta da v0.2.1. O projeto não foi recriado.
 
-## Objetivo
-Buscar **realismo integrado** sem depender de RTX, DXR, CUDA, OptiX ou hardware dedicado de ray tracing. O pack usa os controles que o Bedrock realmente expõe para resource packs: iluminação solar/lunar, atmosfera Rayleigh/Mie, água animada e caustics, PBR fallback, point lights, sombras, color grading/tonemapping e bindings por bioma.
+## Direção
+Buscar realismo integrado no Minecraft Bedrock sem depender de RTX/DXR/hardware de ray tracing dedicado.
 
-## Perfis — todos desbloqueados na v0.1.1
-- LOW — Universal Mobile [UNLOCKED]
-- MEDIUM — Balanced [UNLOCKED]
-- HIGH — Realistic [UNLOCKED]
-- ULTRA — Advanced [UNLOCKED]
-- EXTREME — Cinematic [UNLOCKED]
+## v0.3.0
+- Corrige a biblioteca de materiais que estava produzindo pedras com cores RGB artificiais.
+- Regenera materiais PBR de HIGH/ULTRA/EXTREME com paletas físicas coerentes.
+- Água com animação própria em várias direções + sistema oficial de ondas do Vibrant Visuals para deixar o balanço claramente perceptível.
+- Roughness da água baixa e opacidade ajustada para favorecer os reflexos SSR/IBL do RenderDragon.
+- Tocha visualmente corrigida e iluminação local migrada para `local_lighting`.
+- `soft_shadows` permanece ativo em todos os perfis.
+- Luz solar continua limitada à escala segura do Bedrock.
 
-Todos usam `memory_tier: 1` para permitir teste manual. Isso remove a trava de seleção, mas não garante desempenho adequado em hardware fraco.
+## Perfis
+- LOW — Universal Mobile
+- MEDIUM — Balanced
+- HIGH — Realistic
+- ULTRA — Advanced
+- EXTREME — Cinematic Integrated Realism
+
+Todos permanecem desbloqueados com `memory_tier: 1`.
 
 ## Compatibilidade
-O projeto não usa código específico de NVIDIA, AMD, Intel, Adreno, Mali/Immortalis ou Apple GPU. A compatibilidade final depende de o próprio Minecraft/dispositivo oferecer suporte ao pipeline Vibrant Visuals.
+O pack não utiliza código específico de NVIDIA, AMD, Intel, Adreno, Mali/Immortalis ou Apple GPU. O dispositivo ainda precisa oferecer suporte ao pipeline Vibrant Visuals do próprio Minecraft.
 
-## Estratégia
-A base v0.1.x prioriza estabilidade: sem overrides de mobs e sem texture sets customizados nesta fase. Os próximos módulos entram gradualmente: PBR por material, água/reflexos, vegetação e emissivos, sempre com validação antes do build.
+## Limites do renderer
+Reflexos são calculados pelo Bedrock via SSR/IBL. O Resource Pack controla materiais, roughness, metalness, normals, água e iluminação, mas não inventa campos inexistentes para planar reflection, PCSS ou TAA customizado.

@@ -1,10 +1,10 @@
 {
   "format_version": 2,
   "header": {
-    "name": "Realistic Universal Shader — Core Preview UNLOCKED",
-    "description": "Universal Vibrant Visuals resource pack. LOW/MEDIUM/HIGH/ULTRA/EXTREME unlocked for manual testing. No RTX hardware required.",
+    "name": "Realistic Universal Shader — HEAVY REALISM",
+    "description": "v0.2.1 Heavy Realism: realistic animated water, stronger engine SSR/IBL response, official soft shadows, and high-resolution PBR material library. All profiles unlocked.",
     "uuid": "c4de8b0c-b1c8-4db6-b9bc-3e6b035ee8af",
-    "version": [0, 1, 1],
+    "version": [0, 2, 1],
     "min_engine_version": [1, 21, 120]
   },
   "modules": [
@@ -12,15 +12,15 @@
       "description": "Realistic Universal Shader Resources",
       "type": "resources",
       "uuid": "7507ba66-07de-476c-a09b-3a11ddcaaceb",
-      "version": [0, 1, 1]
+      "version": [0, 2, 1]
     }
   ],
   "capabilities": ["pbr"],
   "subpacks": [
-    {"folder_name": "low", "name": "LOW — Universal Mobile [UNLOCKED]", "memory_tier": 1},
-    {"folder_name": "medium", "name": "MEDIUM — Balanced [UNLOCKED]", "memory_tier": 1},
-    {"folder_name": "high", "name": "HIGH — Realistic [UNLOCKED]", "memory_tier": 1},
-    {"folder_name": "ultra", "name": "ULTRA — Advanced [UNLOCKED]", "memory_tier": 1},
-    {"folder_name": "extreme", "name": "EXTREME — Cinematic [UNLOCKED]", "memory_tier": 1}
+    {"folder_name": "low", "name": "LOW — Universal Mobile [UNLOCKED • v0.2.1]", "memory_tier": 1},
+    {"folder_name": "medium", "name": "MEDIUM — Balanced [UNLOCKED • v0.2.1]", "memory_tier": 1},
+    {"folder_name": "high", "name": "HIGH — Realistic [UNLOCKED • v0.2.1]", "memory_tier": 1},
+    {"folder_name": "ultra", "name": "ULTRA — Advanced [UNLOCKED • v0.2.1]", "memory_tier": 1},
+    {"folder_name": "extreme", "name": "EXTREME — Cinematic HEAVY [UNLOCKED • v0.2.1]", "memory_tier": 1}
   ]
 }

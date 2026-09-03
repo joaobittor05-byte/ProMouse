@@ -1,10 +1,10 @@
 {
   "format_version": 2,
   "header": {
-    "name": "Realistic Universal Shader — Mirror Wave & Material Fix v0.3.1",
-    "description": "v0.3.1: stronger visible water balance/waves, mirror-oriented water material, stable vanilla torch visuals with realistic local lighting, and corrected mineral stone PBR.",
+    "name": "Realistic Universal Shader — CINEMATIC OVERDRIVE",
+    "description": "v0.4.0 Cinematic Overdrive: 1K/2K physical PBR library, 64-frame cinematic water/lava, maximum waves, wet/storm and night showcase profiles. No dedicated ray tracing required.",
     "uuid": "c4de8b0c-b1c8-4db6-b9bc-3e6b035ee8af",
-    "version": [0, 3, 1],
+    "version": [0, 4, 0],
     "min_engine_version": [1, 21, 120]
   },
   "modules": [
@@ -12,15 +12,17 @@
       "description": "Realistic Universal Shader Resources",
       "type": "resources",
       "uuid": "7507ba66-07de-476c-a09b-3a11ddcaaceb",
-      "version": [0, 3, 1]
+      "version": [0, 4, 0]
     }
   ],
   "capabilities": ["pbr"],
   "subpacks": [
-    {"folder_name": "low", "name": "LOW — Universal Mobile [UNLOCKED • v0.3.1]", "memory_tier": 1},
-    {"folder_name": "medium", "name": "MEDIUM — Balanced [UNLOCKED • v0.3.1]", "memory_tier": 1},
-    {"folder_name": "high", "name": "HIGH — Realistic [UNLOCKED • v0.3.1]", "memory_tier": 1},
-    {"folder_name": "ultra", "name": "ULTRA — Advanced [UNLOCKED • v0.3.1]", "memory_tier": 1},
-    {"folder_name": "extreme", "name": "EXTREME — CINEMATIC MIRROR WATER [UNLOCKED • v0.3.1]", "memory_tier": 1}
+    {"folder_name":"low","name":"LOW — Universal Mobile [UNLOCKED • v0.4.0]","memory_tier":1},
+    {"folder_name":"medium","name":"MEDIUM — Balanced [UNLOCKED • v0.4.0]","memory_tier":1},
+    {"folder_name":"high","name":"HIGH — Realistic [UNLOCKED • v0.4.0]","memory_tier":1},
+    {"folder_name":"ultra","name":"ULTRA — Advanced [UNLOCKED • v0.4.0]","memory_tier":1},
+    {"folder_name":"extreme","name":"EXTREME — CINEMATIC OVERDRIVE 1K/2K [UNLOCKED • v0.4.0]","memory_tier":1},
+    {"folder_name":"cinematic_wet","name":"EXTRA — CINEMATIC WET/STORM [HEAVY • UNLOCKED]","memory_tier":1},
+    {"folder_name":"cinematic_night","name":"EXTRA — CINEMATIC NIGHT/EMISSIVE [HEAVY • UNLOCKED]","memory_tier":1}
   ]
 }

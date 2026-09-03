@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.1 — Mirror Wave & Material Fix
+- Água com balanço/ondas oficiais significativamente mais fortes.
+- EXTREME: `depth 3.0`, 30 octaves e `mix 0.76`.
+- Água EXTREME regenerada com ondas cruzadas e normal maps animados de maior resolução.
+- Roughness da água reduzida para aproximadamente 1–3 para maximizar reflexos do engine.
+- Tint/opacity da água por bioma recalibrados.
+- Overrides de textura da tocha removidos; `local_lighting` mantida e corrigida.
+- Materiais minerais refeitos com normal suave, metallic 0 e roughness física alta.
+- `soft_shadows` preservadas em todos os perfis.
+
 ## v0.3.0 — Integrated Realism
 - Correção global aplicada sobre a v0.2.1; sem reiniciar o projeto.
 - Biblioteca PBR reparada para remover pedras e materiais com variação RGB artificial.
@@ -18,22 +28,3 @@
 - `blocky_shadows` foi substituído por `soft_shadows` no caminho oficial do Bedrock.
 - Biblioteca PBR pesada adicionada por níveis.
 - Todos os perfis permanecem desbloqueados com `memory_tier: 1`.
-
-## v0.2.0 — Water Reflection + Soft Shadows Correction
-- Ondas de água corrigidas com parâmetros documentados do Vibrant Visuals.
-- Normal maps animados e material de água próprio.
-- Resposta de reflexão fortalecida via roughness/PBR.
-- Sombras movidas para `soft_shadows`.
-
-## v0.1.1 — All Profiles Unlocked
-- LOW, MEDIUM, HIGH, ULTRA and EXTREME/CINEMATIC use `memory_tier: 1`.
-
-## v0.1.0 — Core Preview
-- reconstrução completa a partir de uma base limpa
-- 5 perfis adaptativos
-- iluminação em escala segura do Bedrock
-- atmosfera por grupo de bioma
-- água animada por perfil e ambiente
-- PBR fallback
-- ACES nos perfis mais altos
-- bindings por bioma

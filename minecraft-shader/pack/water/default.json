@@ -10,23 +10,23 @@
     "caustics": {
       "enabled": true,
       "frame_length": 0.04,
-      "power": 2,
-      "scale": 0.5
+      "power": 2.4,
+      "scale": 0.46
     },
     "waves": {
       "enabled": true,
-      "depth": 2.2,
-      "direction_increment": 137.5,
-      "frequency": 0.55,
-      "frequency_scaling": 1.22,
-      "mix": 0.44,
-      "octaves": 24,
-      "pull": 0.36,
-      "sampleWidth": 0.011,
-      "shape": 2.1,
-      "speed": 0.9,
-      "speed_scaling": 1.1
+      "depth": 2.65,
+      "direction_increment": 111.246,
+      "frequency": 0.66,
+      "frequency_scaling": 1.25,
+      "mix": 0.58,
+      "octaves": 28,
+      "pull": 0.48,
+      "sampleWidth": 0.01,
+      "shape": 2.38,
+      "speed": 1.1,
+      "speed_scaling": 1.09
     },
-    "biome_water_color_contribution": 0.14
+    "biome_water_color_contribution": 0.08
   }
 }

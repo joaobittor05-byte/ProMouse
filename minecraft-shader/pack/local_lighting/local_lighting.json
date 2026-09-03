@@ -1,0 +1,20 @@
+{
+  "format_version": "1.21.120",
+  "minecraft:local_light_settings": {
+    "minecraft:torch": {"light_color": "#F0B45E", "light_type": "point_light"},
+    "minecraft:lantern": {"light_color": "#E2A25B", "light_type": "point_light"},
+    "minecraft:candle": {"light_color": "#ECC47C", "light_type": "point_light"},
+    "minecraft:soul_torch": {"light_color": "#67C7DB", "light_type": "point_light"},
+    "minecraft:soul_lantern": {"light_color": "#62C2D7", "light_type": "point_light"},
+    "minecraft:end_rod": {"light_color": "#DDE7F0", "light_type": "point_light"},
+    "minecraft:glowstone": {"light_color": "#EEB465", "light_type": "point_light"},
+    "minecraft:sea_lantern": {"light_color": "#B4D7D5", "light_type": "point_light"},
+    "minecraft:shroomlight": {"light_color": "#E99668", "light_type": "point_light"},
+    "minecraft:fire": {"light_color": "#F29448", "light_type": "point_light"},
+    "minecraft:soul_fire": {"light_color": "#61C6D8", "light_type": "point_light"},
+    "minecraft:redstone_lamp": {"light_color": "#E1A35D", "light_type": "point_light"},
+    "minecraft:lit_pumpkin": {"light_color": "#E38E3D", "light_type": "point_light"},
+    "minecraft:lava": {"light_color": "#E57732", "light_type": "point_light"},
+    "minecraft:magma": {"light_color": "#D56D35", "light_type": "point_light"}
+  }
+}

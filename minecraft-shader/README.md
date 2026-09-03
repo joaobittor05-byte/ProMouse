@@ -1,30 +1,16 @@
-# Realistic Universal Shader v0.3.0 — Integrated Realism
+# Realistic Universal Shader — v0.3.1 Mirror Wave & Material Fix
 
-Continuação direta da v0.2.1. O projeto não foi recriado.
+Correção direta da v0.3.0, sem recriar o projeto.
 
-## Direção
-Buscar realismo integrado no Minecraft Bedrock sem depender de RTX/DXR/hardware de ray tracing dedicado.
-
-## v0.3.0
-- Corrige a biblioteca de materiais que estava produzindo pedras com cores RGB artificiais.
-- Regenera materiais PBR de HIGH/ULTRA/EXTREME com paletas físicas coerentes.
-- Água com animação própria em várias direções + sistema oficial de ondas do Vibrant Visuals para deixar o balanço claramente perceptível.
-- Roughness da água baixa e opacidade ajustada para favorecer os reflexos SSR/IBL do RenderDragon.
-- Tocha visualmente corrigida e iluminação local migrada para `local_lighting`.
-- `soft_shadows` permanece ativo em todos os perfis.
-- Luz solar continua limitada à escala segura do Bedrock.
-
-## Perfis
-- LOW — Universal Mobile
-- MEDIUM — Balanced
-- HIGH — Realistic
-- ULTRA — Advanced
-- EXTREME — Cinematic Integrated Realism
-
-Todos permanecem desbloqueados com `memory_tier: 1`.
+## Principais mudanças
+- Tocha: removidos os overrides de textura/PBR que estavam quebrando o visual. A textura/modelo volta ao asset estável do Minecraft, enquanto a iluminação local continua customizada.
+- Água: EXTREME usa o máximo de `depth=3.0`, 30 octaves e mistura alta de ondas oficiais, além de flipbooks procedurais de alta resolução com ondas cruzadas.
+- Reflexos: água em EXTREME usa roughness quase zero para maximizar SSR/IBL do RenderDragon e superfície mais neutra para não mascarar reflexos.
+- Pedra: albedo mineral neutralizado, normal maps muito mais suaves e roughness alta para remover aspecto colorido/plástico.
+- Sombras: `soft_shadows` mantido em todos os perfis.
 
 ## Compatibilidade
-O pack não utiliza código específico de NVIDIA, AMD, Intel, Adreno, Mali/Immortalis ou Apple GPU. O dispositivo ainda precisa oferecer suporte ao pipeline Vibrant Visuals do próprio Minecraft.
+O projeto continua usando o pipeline PBR/Vibrant Visuals, sem depender de RTX dedicado, CUDA, OptiX ou GPU específica.
 
 ## Limites do renderer
-Reflexos são calculados pelo Bedrock via SSR/IBL. O Resource Pack controla materiais, roughness, metalness, normals, água e iluminação, mas não inventa campos inexistentes para planar reflection, PCSS ou TAA customizado.
+Vibrant Visuals calcula reflexos via SSR + IBL. Um Resource Pack pode maximizar esse caminho com roughness, normals, água e materiais, mas não consegue obrigar o renderer a refletir objetos fora da tela nem implementar planar reflection própria.

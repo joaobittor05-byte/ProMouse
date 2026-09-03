@@ -1,0 +1,38 @@
+{
+  "version": "0.3.0",
+  "title": "Integrated Realism",
+  "validation": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "water": {
+    "system": "animated multi-direction water textures plus official Vibrant Visuals waves",
+    "root": {
+      "depth": 2.2,
+      "octaves": 24,
+      "direction_increment": 137.5,
+      "frequency": 0.55,
+      "mix": 0.44,
+      "speed": 0.9
+    },
+    "extreme": {
+      "depth": 2.85,
+      "octaves": 30,
+      "direction_increment": 137.5,
+      "frequency": 0.47,
+      "mix": 0.54,
+      "speed": 1.04
+    }
+  },
+  "shadows": "soft_shadows",
+  "lighting": "local_lighting",
+  "material_fix": "removed artificial RGB/rainbow procedural material generation and replaced it with physically coherent PBR palettes",
+  "entity_overrides": 0,
+  "sun_max": 100,
+  "profiles": ["low", "medium", "high", "ultra", "extreme"],
+  "notes": [
+    "All profiles remain unlocked with memory_tier 1.",
+    "Reflections rely on the Bedrock renderer SSR/IBL path and material roughness/normal response.",
+    "The pack does not use fake unsupported PCSS, planar-reflection or custom TAA fields."
+  ]
+}

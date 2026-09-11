@@ -11,9 +11,16 @@ import rikka.shizuku.Shizuku;
 
 public final class ShizukuCore {
     public static final int REQUEST_CODE = 4105;
-    private static final int USER_SERVICE_VERSION = 14;
-    private static final long BIND_TIMEOUT_MS = 5000L;
+
+    // Trocar a versão força o servidor Shizuku a recarregar o código do UserService.
+    private static final int USER_SERVICE_VERSION = 15;
+    private static final long BIND_TIMEOUT_MS = 12000L;
     private static final Object LOCK = new Object();
+
+    // Alpha12-14 usavam este tag em daemon=true. Limpamos explicitamente para não
+    // deixar um processo privilegiado antigo preso depois de atualizar o APK.
+    private static final String LEGACY_TAG = "leo_optimazer_shell";
+    private static final String CORE_TAG = "leo_optimazer_core";
 
     private static volatile Context appContext;
     private static volatile ILeoShell service;
@@ -21,6 +28,7 @@ public final class ShizukuCore {
     private static volatile long bindStartedAt;
     private static volatile String lastBindError = "";
     private static volatile Shizuku.UserServiceArgs serviceArgs;
+    private static volatile boolean legacyCleanupAttempted;
 
     private ShizukuCore() {}
 
@@ -44,13 +52,18 @@ public final class ShizukuCore {
 
     private static final Shizuku.OnBinderReceivedListener BINDER_RECEIVED = () -> {
         lastBindError = "";
-        if (hasPermission()) bindUserService();
+        if (hasPermission()) {
+            cleanupLegacyServiceOnce();
+            bindUserService();
+        }
     };
 
     private static final Shizuku.OnBinderDeadListener BINDER_DEAD = () -> {
         service = null;
         binding = false;
         bindStartedAt = 0L;
+        serviceArgs = null;
+        legacyCleanupAttempted = false;
         lastBindError = "Binder do Shizuku morreu";
         synchronized (LOCK) { LOCK.notifyAll(); }
     };
@@ -58,6 +71,7 @@ public final class ShizukuCore {
     private static final Shizuku.OnRequestPermissionResultListener PERMISSION_RESULT = (requestCode, grantResult) -> {
         if (requestCode == REQUEST_CODE && grantResult == PackageManager.PERMISSION_GRANTED) {
             lastBindError = "";
+            cleanupLegacyServiceOnce();
             bindUserService();
         }
     };
@@ -108,7 +122,13 @@ public final class ShizukuCore {
         ILeoShell local = service;
         if (local == null) return false;
         try {
-            return local.asBinder().isBinderAlive();
+            if (!local.asBinder().isBinderAlive()) {
+                service = null;
+                return false;
+            }
+            // Confirma que o AIDL do processo remoto realmente responde, não apenas o Binder.
+            int uid = local.getServiceUid();
+            return uid == 0 || uid == 2000;
         } catch (Throwable t) {
             service = null;
             lastBindError = "UserService inválido: " + safeMessage(t);
@@ -121,7 +141,8 @@ public final class ShizukuCore {
                 && SystemClock.elapsedRealtime() - bindStartedAt > BIND_TIMEOUT_MS) {
             binding = false;
             bindStartedAt = 0L;
-            lastBindError = "Tempo limite ao conectar UserService";
+            lastBindError = "Tempo limite ao conectar UserService (12s)";
+            synchronized (LOCK) { LOCK.notifyAll(); }
         }
         return binding;
     }
@@ -138,10 +159,44 @@ public final class ShizukuCore {
     public static void requestPermission() {
         if (!isBinderAlive()) throw new IllegalStateException("Inicie o Shizuku primeiro");
         if (hasPermission()) {
-            bindUserService();
+            retryBind();
             return;
         }
         Shizuku.requestPermission(REQUEST_CODE);
+    }
+
+    private static Shizuku.UserServiceArgs newCoreArgs() {
+        Context context = appContext;
+        if (context == null) throw new IllegalStateException("LeoApplication ainda não inicializado");
+        return new Shizuku.UserServiceArgs(
+                new ComponentName(context.getPackageName(), LeoShizukuService.class.getName()))
+                .processNameSuffix("leo_core")
+                .daemon(false)
+                .tag(CORE_TAG)
+                .debuggable(false)
+                .version(USER_SERVICE_VERSION);
+    }
+
+    private static Shizuku.UserServiceArgs legacyArgs() {
+        Context context = appContext;
+        if (context == null) throw new IllegalStateException("LeoApplication ainda não inicializado");
+        return new Shizuku.UserServiceArgs(
+                new ComponentName(context.getPackageName(), LeoShizukuService.class.getName()))
+                .processNameSuffix("leo_shell")
+                .daemon(true)
+                .tag(LEGACY_TAG)
+                .debuggable(false)
+                .version(14);
+    }
+
+    private static void cleanupLegacyServiceOnce() {
+        if (legacyCleanupAttempted || !isBinderAlive() || !hasPermission()) return;
+        legacyCleanupAttempted = true;
+        try {
+            Shizuku.unbindUserService(legacyArgs(), null, true);
+        } catch (Throwable ignored) {
+            // Se não existir serviço antigo, não há nada para limpar.
+        }
     }
 
     public static void bindUserService() {
@@ -153,19 +208,12 @@ public final class ShizukuCore {
         if (!hasPermission() || isReady()) return;
         if (isBinding()) return;
 
+        cleanupLegacyServiceOnce();
         binding = true;
         bindStartedAt = SystemClock.elapsedRealtime();
         lastBindError = "";
         try {
-            if (serviceArgs == null) {
-                serviceArgs = new Shizuku.UserServiceArgs(
-                        new ComponentName(context.getPackageName(), LeoShizukuService.class.getName()))
-                        .processNameSuffix("leo_shell")
-                        .daemon(true)
-                        .tag("leo_optimazer_shell")
-                        .debuggable(false)
-                        .version(USER_SERVICE_VERSION);
-            }
+            if (serviceArgs == null) serviceArgs = newCoreArgs();
             Shizuku.bindUserService(serviceArgs, CONNECTION);
         } catch (Throwable t) {
             binding = false;
@@ -175,10 +223,34 @@ public final class ShizukuCore {
         }
     }
 
-    public static void retryBind() {
-        if (isReady()) return;
+    private static void removeCurrentUserService() {
+        ILeoShell local = service;
+        service = null;
         binding = false;
         bindStartedAt = 0L;
+
+        try {
+            Shizuku.UserServiceArgs args = serviceArgs != null ? serviceArgs : newCoreArgs();
+            Shizuku.unbindUserService(args, CONNECTION, true);
+        } catch (Throwable ignored) {
+            // O serviço pode ainda não existir ou já ter morrido.
+        }
+
+        // Segurança adicional: se o Binder remoto ainda estiver vivo, pede encerramento.
+        if (local != null) {
+            try { local.destroy(); } catch (Throwable ignored) {}
+        }
+        serviceArgs = null;
+    }
+
+    public static void retryBind() {
+        if (!hasPermission()) return;
+        if (isReady()) return;
+
+        // Uma tentativa manual é realmente uma recriação limpa, não apenas outro bind
+        // no mesmo registro possivelmente travado.
+        removeCurrentUserService();
+        cleanupLegacyServiceOnce();
         lastBindError = "";
         bindUserService();
     }
@@ -191,7 +263,7 @@ public final class ShizukuCore {
         while (!isReady() && SystemClock.elapsedRealtime() < deadline) {
             synchronized (LOCK) {
                 try {
-                    LOCK.wait(120L);
+                    LOCK.wait(150L);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException("Conexão Shizuku interrompida");
@@ -201,7 +273,7 @@ public final class ShizukuCore {
         }
 
         ILeoShell local = service;
-        if (local == null) {
+        if (local == null || !isReady()) {
             String detail = getLastBindError();
             throw new IllegalStateException(detail.isEmpty()
                     ? "UserService do Shizuku não conectou" : detail);
@@ -213,6 +285,22 @@ public final class ShizukuCore {
         ILeoShell local = service;
         if (local == null) return -1;
         try { return local.getServiceUid(); } catch (Exception ignored) { return -1; }
+    }
+
+    public static String runtimeDiagnostic() {
+        try {
+            int api = Shizuku.getVersion();
+            int patch;
+            try { patch = Shizuku.getServerPatchVersion(); } catch (Throwable ignored) { patch = -1; }
+            int backend = getBackendUid();
+            return "Shizuku API " + api
+                    + (patch >= 0 ? "." + patch : "")
+                    + " • backend UID " + backend
+                    + " • Leo UserService v" + USER_SERVICE_VERSION
+                    + " • daemon=off";
+        } catch (Throwable t) {
+            return "Diagnóstico de runtime indisponível: " + safeMessage(t);
+        }
     }
 
     public static String statusLabel() {

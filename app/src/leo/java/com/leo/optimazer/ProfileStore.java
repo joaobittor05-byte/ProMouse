@@ -18,35 +18,29 @@ public final class ProfileStore {
 
     public static final class Profile {
         public final String packageName;
-        /** Resolução-base usada quando a DPI dedicada está em 400. */
         public final int width;
         public final int height;
-        /** DPI Android dedicada do aplicativo. 400 = padrão de referência do Leo. */
         public final int density;
         public final boolean restoreOnExit;
         public final boolean enabled;
-        /** Prioriza resposta do toque via mecanismos AOSP enquanto o app está em primeiro plano. */
         public final boolean fastTouch;
-        /** Usa o resampling nativo do Android quando a ROM o mantém habilitado. */
         public final boolean linearDrag;
-        /** Intensidade 1–100 do Touch Engine. */
         public final int touchLevel;
-        /** Procura um refresh múltiplo inteiro do FPS do jogo. */
+        /** Legado. Na Alpha17 o Frame Repeat é controlado pelo FrameRepeatService. */
         public final boolean frameMatch;
-        /** 0 = AUTO por SurfaceFlinger; 20–240 = FPS alvo manual. */
         public final int targetFps;
 
         public Profile(String packageName, int width, int height, int density,
                        boolean restoreOnExit, boolean enabled) {
             this(packageName, width, height, density, restoreOnExit, enabled,
-                    true, true, 85, true, 0);
+                    true, true, 85, false, 0);
         }
 
         public Profile(String packageName, int width, int height, int density,
                        boolean restoreOnExit, boolean enabled,
                        boolean fastTouch, boolean linearDrag, int touchLevel) {
             this(packageName, width, height, density, restoreOnExit, enabled,
-                    fastTouch, linearDrag, touchLevel, true, 0);
+                    fastTouch, linearDrag, touchLevel, false, 0);
         }
 
         public Profile(String packageName, int width, int height, int density,
@@ -62,7 +56,8 @@ public final class ProfileStore {
             this.fastTouch = fastTouch;
             this.linearDrag = linearDrag;
             this.touchLevel = Math.max(1, Math.min(100, touchLevel));
-            this.frameMatch = frameMatch;
+            // Sempre false na Alpha17 para impedir disputa com o serviço antigo.
+            this.frameMatch = false;
             this.targetFps = targetFps == 0 ? 0 : Math.max(20, Math.min(240, targetFps));
         }
     }
@@ -77,7 +72,6 @@ public final class ProfileStore {
 
     private static void migrateDpiModelIfNeeded(SharedPreferences prefs) {
         if (prefs.getBoolean(KEY_DPI_MODEL_V11, false)) return;
-
         SharedPreferences.Editor editor = prefs.edit();
         for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
             if (!entry.getKey().startsWith(PREFIX) || !(entry.getValue() instanceof String)) continue;
@@ -89,7 +83,6 @@ public final class ProfileStore {
                 int migrated = oldDpi >= 600 ? Math.round(oldDpi / 2f) : oldDpi;
                 migrated = Math.max(PerAppCompat.MIN_DEDICATED_DPI,
                         Math.min(PerAppCompat.MAX_DEDICATED_DPI, migrated));
-
                 StringBuilder value = new StringBuilder();
                 value.append(p[0]).append(',').append(p[1]).append(',').append(migrated)
                         .append(',').append(p[3]).append(',').append(p[4]);
@@ -105,13 +98,11 @@ public final class ProfileStore {
         PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(profile.width, profile.height, metrics);
         int normalizedDpi = limits.clamp(profile.density);
         int fps = profile.targetFps == 0 ? 0 : Math.max(20, Math.min(240, profile.targetFps));
-
         String value = profile.width + "," + profile.height + "," + normalizedDpi + "," +
                 profile.restoreOnExit + "," + profile.enabled + "," +
                 profile.fastTouch + "," + profile.linearDrag + "," + profile.touchLevel + "," +
-                profile.frameMatch + "," + fps;
+                false + "," + fps;
         prefs(context).edit().putString(PREFIX + profile.packageName, value).apply();
-
         if (profile.enabled) ensureMonitor(context);
     }
 
@@ -139,8 +130,11 @@ public final class ProfileStore {
     private static void ensureMonitor(Context context) {
         try {
             Intent intent = new Intent(context, MonitorService.class);
-            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent);
-            else context.startService(intent);
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent); else context.startService(intent);
+        } catch (Throwable ignored) {}
+        try {
+            Intent intent = new Intent(context, FrameRepeatService.class);
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent); else context.startService(intent);
         } catch (Throwable ignored) {}
     }
 
@@ -151,23 +145,11 @@ public final class ProfileStore {
             boolean fast = p.length >= 8 ? Boolean.parseBoolean(p[5]) : true;
             boolean linear = p.length >= 8 ? Boolean.parseBoolean(p[6]) : true;
             int level = p.length >= 8 ? Integer.parseInt(p[7]) : 85;
-            boolean frameMatch = p.length >= 10 ? Boolean.parseBoolean(p[8]) : true;
             int targetFps = p.length >= 10 ? Integer.parseInt(p[9]) : 0;
-            return new Profile(
-                    packageName,
-                    Integer.parseInt(p[0]),
-                    Integer.parseInt(p[1]),
-                    Integer.parseInt(p[2]),
-                    Boolean.parseBoolean(p[3]),
-                    Boolean.parseBoolean(p[4]),
-                    fast,
-                    linear,
-                    level,
-                    frameMatch,
-                    targetFps
-            );
-        } catch (Exception ignored) {
-            return null;
-        }
+            return new Profile(packageName,
+                    Integer.parseInt(p[0]), Integer.parseInt(p[1]), Integer.parseInt(p[2]),
+                    Boolean.parseBoolean(p[3]), Boolean.parseBoolean(p[4]),
+                    fast, linear, level, false, targetFps);
+        } catch (Exception ignored) { return null; }
     }
 }

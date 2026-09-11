@@ -33,10 +33,13 @@ final class LeoFallbackDispatcher {
             switch (p[1]) {
                 case "top":
                     requireLength(p, 2); return topPackage();
-                case "frame-apply":
-                    if (p.length != 4 && p.length != 5) throw new SecurityException("Formato frame-apply inválido");
+                case "frame-apply": {
+                    if (p.length < 4 || p.length > 6) throw new SecurityException("Formato frame-apply inválido");
                     requirePackage(p[2]);
-                    return FrameMatchController.apply(p[2], parseFps(p[3]), p.length == 5 ? validMode(p[4]) : FrameRepeatPrefs.MODE_COMPETITIVE);
+                    String mode = p.length >= 5 ? validMode(p[4]) : FrameRepeatPrefs.MODE_COMPETITIVE;
+                    String vsync = p.length >= 6 ? validVsync(p[5]) : FrameRepeatPrefs.VSYNC_AUTO;
+                    return FrameMatchController.apply(p[2], parseFps(p[3]), mode, vsync);
+                }
                 case "frame-status":
                     requireLength(p, 3); requirePackage(p[2]); return FrameMatchController.status(p[2]);
                 case "frame-reset":
@@ -93,6 +96,11 @@ final class LeoFallbackDispatcher {
         String mode = FrameRepeatPrefs.normalizeMode(value);
         if (!mode.equals(value)) throw new SecurityException("Modo inválido");
         return mode;
+    }
+    private static String validVsync(String value) {
+        String vsync = FrameRepeatPrefs.normalizeVsync(value);
+        if (!vsync.equals(value)) throw new SecurityException("VSync inválido");
+        return vsync;
     }
     private static void requirePackage(String value) { if (!PACKAGE.matcher(value).matches()) throw new SecurityException("Pacote inválido"); }
     private static void requireLength(String[] p, int length) { if (p.length != length) throw new SecurityException("Formato de comando inválido"); }

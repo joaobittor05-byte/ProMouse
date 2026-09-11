@@ -2,7 +2,7 @@ name: Build Leo Optimazer APK
 
 on:
   push:
-    branches: [ "leo-optimazer-v1", "leo-optimazer-frame-repeat", "leo-optimazer-alpha17-universal-ui" ]
+    branches: [ "leo-optimazer-v1", "leo-optimazer-frame-repeat", "leo-optimazer-alpha17-universal-ui", "leo-optimazer-alpha18-vsync-control" ]
   workflow_dispatch:
 
 permissions:
@@ -24,10 +24,10 @@ jobs:
         with:
           gradle-version: '8.7'
       - run: gradle :app:assembleDebug --stacktrace
-      - run: cp app/build/outputs/apk/debug/app-debug.apk LeoOptimazer-v1-alpha17-universal-frame-repeat.apk
+      - run: cp app/build/outputs/apk/debug/app-debug.apk LeoOptimazer-v1-alpha18-vsync-control.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LeoOptimazer-V1-Alpha17-Universal-Frame-Repeat
-          path: LeoOptimazer-v1-alpha17-universal-frame-repeat.apk
+          name: LeoOptimazer-V1-Alpha18-VSync-Control
+          path: LeoOptimazer-v1-alpha18-vsync-control.apk
           if-no-files-found: error
           retention-days: 30

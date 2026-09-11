@@ -23,6 +23,7 @@ public class MonitorService extends Service {
     public static final String KEY_LAST_CLEANUP_RESULT = "last_cleanup_result";
     public static final String KEY_LAST_PROFILE_RESULT = "last_profile_result";
     public static final String KEY_LAST_TOUCH_RESULT = "last_touch_result";
+    public static final String KEY_LAST_FRAME_RESULT = "last_frame_result";
 
     private static final String CHANNEL_ID = "leo_optimizer_core";
     private static final int NOTIFICATION_ID = 4107;
@@ -30,13 +31,19 @@ public class MonitorService extends Service {
     private HandlerThread workerThread;
     private Handler worker;
     private long nextCleanupAt = Long.MAX_VALUE;
+
     private String activeDpiPackage;
     private int activeTaskDensity = -1;
     private int activeDedicatedDpi = -1;
     private long nextDensityVerificationAt = 0L;
+
     private String activeTouchPackage;
     private String activeTouchSummary = "OFF";
     private long nextTouchRefreshAt = 0L;
+
+    private String activeFramePackage;
+    private String activeFrameSummary = "OFF";
+    private long nextFrameVerificationAt = 0L;
 
     @Override
     public void onCreate() {
@@ -103,6 +110,10 @@ public class MonitorService extends Service {
             try { ShizukuCore.execute("leo touch-reset " + activeTouchPackage); } catch (Exception ignored) {}
             clearActiveTouch();
         }
+        if (activeFramePackage != null && !activeFramePackage.equals(top)) {
+            try { ShizukuCore.execute("leo frame-reset " + activeFramePackage); } catch (Exception ignored) {}
+            clearActiveFrame();
+        }
 
         ProfileStore.Profile profile = ProfileStore.get(this, top);
         if (profile == null || !profile.enabled) {
@@ -112,6 +123,7 @@ public class MonitorService extends Service {
         }
 
         PerAppCompat.Plan plan = PerAppCompat.build(profile, getResources().getDisplayMetrics());
+        String frameState = syncFrameMatch(top, profile, now);
         String touchState = syncTouchEngine(top, profile, now);
 
         int wantedDensity = plan.estimatedDensity;
@@ -122,8 +134,8 @@ public class MonitorService extends Service {
             if (!isVerified(status, wantedDensity)) {
                 needsApply = true;
             } else {
-                nextDensityVerificationAt = now + 3000L;
-                String state = "DPI dedicada " + plan.normalizedDensity + " verificada • Touch " + touchState;
+                nextDensityVerificationAt = now + 5000L;
+                String state = "DPI " + plan.normalizedDensity + " • Frame " + frameState + " • Touch " + touchState;
                 saveProfileState(state + "\n" + status);
                 return state;
             }
@@ -135,25 +147,87 @@ public class MonitorService extends Service {
                 activeDpiPackage = top;
                 activeTaskDensity = wantedDensity;
                 activeDedicatedDpi = plan.normalizedDensity;
-                nextDensityVerificationAt = now + 2200L;
-                String state = "DPI " + plan.normalizedDensity + " aplicada • Touch " + touchState;
+                nextDensityVerificationAt = now + 3500L;
+                String state = "DPI " + plan.normalizedDensity + " • Frame " + frameState + " • Touch " + touchState;
                 saveProfileState(state + "\n" + result);
                 return state;
             }
 
             if (result.startsWith("TASK_DENSITY_REJECTED")) {
                 clearActiveDpi();
-                String state = "Android/ROM rejeitou a DPI • Touch " + touchState;
+                String state = "DPI rejeitada • Frame " + frameState + " • Touch " + touchState;
                 saveProfileState(state + "\n" + result);
                 return state;
             }
 
-            String state = "Perfil salvo • aguardando tarefa • Touch " + touchState;
+            String state = "Perfil aguardando tarefa • Frame " + frameState + " • Touch " + touchState;
             saveProfileState(state + "\n" + result);
             return state;
         }
 
-        return "DPI " + activeDedicatedDpi + " ativa • Touch " + touchState;
+        return "DPI " + activeDedicatedDpi + " • Frame " + frameState + " • Touch " + touchState;
+    }
+
+    private String syncFrameMatch(String top, ProfileStore.Profile profile, long now) throws Exception {
+        if (!profile.frameMatch) {
+            if (top.equals(activeFramePackage)) {
+                ShizukuCore.execute("leo frame-reset " + top);
+                clearActiveFrame();
+            }
+            saveFrameState("desligado");
+            return "OFF";
+        }
+
+        if (!top.equals(activeFramePackage)) {
+            String result = ShizukuCore.execute("leo frame-apply " + top + " " + profile.targetFps);
+            activeFramePackage = top;
+            nextFrameVerificationAt = now + 8000L;
+            activeFrameSummary = summarizeFrameResult(result);
+            saveFrameState(result);
+            return activeFrameSummary;
+        }
+
+        if (now >= nextFrameVerificationAt) {
+            String status = ShizukuCore.execute("leo frame-status " + top);
+            if (!status.contains("verified=true")) {
+                String result = ShizukuCore.execute("leo frame-apply " + top + " " + profile.targetFps);
+                activeFrameSummary = summarizeFrameResult(result);
+                saveFrameState("REAPLICADO\n" + result);
+            } else {
+                activeFrameSummary = summarizeFrameResult(status);
+                saveFrameState(status);
+            }
+            nextFrameVerificationAt = now + 8000L;
+        }
+        return activeFrameSummary;
+    }
+
+    private String summarizeFrameResult(String result) {
+        if (result == null || result.trim().isEmpty()) return "LIMITADO";
+        String fps = tokenValue(result, "fps");
+        String refresh = tokenValue(result, "refresh");
+        String ratio = tokenValue(result, "ratio");
+        String source = tokenValue(result, "source");
+        String integer = tokenValue(result, "integer");
+        boolean fallback = source.startsWith("fallback60");
+        String base = (fps.isEmpty() ? "?" : fps) + "→" + (refresh.isEmpty() ? "?" : refresh) + "Hz";
+        if (!ratio.isEmpty()) base += " " + ratio;
+        if ("true".equals(integer) || (!ratio.isEmpty() && ratio.endsWith(":1") && !ratio.contains("."))) {
+            base += " ✓";
+        }
+        if (fallback) base += " fallback";
+        return base;
+    }
+
+    private String tokenValue(String text, String key) {
+        String prefix = key + "=";
+        String[] parts = text.replace('\n', ' ').split("\\s+");
+        for (String part : parts) {
+            if (part.startsWith(prefix) && part.length() > prefix.length()) {
+                return part.substring(prefix.length());
+            }
+        }
+        return "";
     }
 
     private String syncTouchEngine(String top, ProfileStore.Profile profile, long now) throws Exception {
@@ -173,7 +247,7 @@ public class MonitorService extends Service {
                     + profile.touchLevel + " v1";
             String result = ShizukuCore.execute(command);
             activeTouchPackage = top;
-            nextTouchRefreshAt = now + 5000L;
+            nextTouchRefreshAt = now + 15000L;
             saveTouchState(result);
             activeTouchSummary = summarizeTouchResult(result, profile.fastTouch, profile.linearDrag);
             return activeTouchSummary;
@@ -191,7 +265,7 @@ public class MonitorService extends Service {
         if (fastPipeline && smooth && fast && linear) return "AOSP RÁPIDO+SUAVE";
         if (smooth && linear) return "AOSP SUAVE";
         if (fastPipeline && fast) return romBlocked && linear
-                ? "AOSP RÁPIDO • ARRASTO LIMITADO PELA ROM"
+                ? "AOSP RÁPIDO • ARRASTO LIMITADO"
                 : "AOSP RÁPIDO";
         if (romBlocked && linear) return "ARRASTO LIMITADO PELA ROM";
         if (universal) return "AOSP ATIVO";
@@ -217,6 +291,10 @@ public class MonitorService extends Service {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST_TOUCH_RESULT, value).apply();
     }
 
+    private void saveFrameState(String value) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST_FRAME_RESULT, value).apply();
+    }
+
     private void clearActiveDpi() {
         activeDpiPackage = null;
         activeTaskDensity = -1;
@@ -228,6 +306,12 @@ public class MonitorService extends Service {
         activeTouchPackage = null;
         activeTouchSummary = "OFF";
         nextTouchRefreshAt = 0L;
+    }
+
+    private void clearActiveFrame() {
+        activeFramePackage = null;
+        activeFrameSummary = "OFF";
+        nextFrameVerificationAt = 0L;
     }
 
     private void runAutomaticCleanup() {
@@ -242,7 +326,7 @@ public class MonitorService extends Service {
                     .putLong(KEY_LAST_FREED_MB, freed)
                     .putString(KEY_LAST_CLEANUP_RESULT, "SHIZUKU_OK")
                     .apply();
-            updateNotification("RAM limpa • +" + freed + " MB • Touch Engine mantido");
+            updateNotification("RAM limpa • +" + freed + " MB • Frame Match mantido");
         } catch (Exception e) {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putLong(KEY_LAST_CLEANUP, System.currentTimeMillis())
@@ -283,7 +367,7 @@ public class MonitorService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Leo Optimazer", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Perfis de DPI/resolução, Touch Engine universal e RAM automática via Shizuku");
+            channel.setDescription("DPI/resolução, Touch Engine, Frame Match e RAM via Shizuku");
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
@@ -298,7 +382,7 @@ public class MonitorService extends Service {
                 : new Notification.Builder(this);
 
         return builder
-                .setContentTitle("Leo Optimazer • Shizuku + Touch AOSP")
+                .setContentTitle("Leo Optimazer • Competitive Engine")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
                 .setContentIntent(pending)
@@ -319,9 +403,13 @@ public class MonitorService extends Service {
             if (activeTouchPackage != null) {
                 try { ShizukuCore.execute("leo touch-reset " + activeTouchPackage); } catch (Exception ignored) {}
             }
+            if (activeFramePackage != null) {
+                try { ShizukuCore.execute("leo frame-reset " + activeFramePackage); } catch (Exception ignored) {}
+            }
         }
         clearActiveDpi();
         clearActiveTouch();
+        clearActiveFrame();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).apply();
         if (worker != null) worker.removeCallbacksAndMessages(null);
         if (workerThread != null) workerThread.quitSafely();

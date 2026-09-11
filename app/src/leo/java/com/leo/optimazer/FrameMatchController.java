@@ -12,10 +12,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Frame Match / Multiple Sync universal.
+ * Leo Frame Repeat / Multiple Sync.
  *
- * Não gera frames novos. O objetivo é casar o FPS real/alvo do jogo com uma taxa de
- * atualização que seja um múltiplo inteiro sempre que possível (ex.: 60->120, 45->90).
+ * Não gera frames e não captura a imagem do jogo. O Android mantém o último buffer válido
+ * até o próximo frame real chegar; o Leo casa o FPS real/alvo com um refresh múltiplo inteiro
+ * sempre que possível. Assim, 60 FPS em 120 Hz vira a cadência A,A,B,B,C,C sem criar fila,
+ * sem IA e sem esperar o próximo frame.
  *
  * AUTO mede averageFPS das camadas do pacote via SurfaceFlinger timestats. Se a ROM não
  * expuser a medição, usa 60 FPS como fallback seguro. A frequência escolhida é solicitada
@@ -35,6 +37,8 @@ final class FrameMatchController {
     private static int activeFps;
     private static float activeRefresh;
     private static int activeMultiple;
+    private static int activeDuplicates;
+    private static String activeCadence = "OFF";
     private static String activeFpsSource = "none";
 
     private FrameMatchController() {}
@@ -70,10 +74,12 @@ final class FrameMatchController {
         activeFps = fps;
         activeRefresh = match.refresh;
         activeMultiple = match.multiple;
+        activeDuplicates = Math.max(0, match.multiple - 1);
+        activeCadence = cadenceLabel(match.multiple, match.integer);
         activeFpsSource = source;
 
         String verify = verifySettings(match.refresh) ? "true" : "false";
-        return "FRAME_MATCH_OK"
+        return "FRAME_REPEAT_OK"
                 + " package=" + packageName
                 + " fps=" + fps
                 + " source=" + source
@@ -81,6 +87,11 @@ final class FrameMatchController {
                 + " ratio=" + ratioLabel(match.refresh, fps)
                 + " integer=" + match.integer
                 + " multiple=" + match.multiple
+                + " repeat=x" + match.multiple
+                + " duplicates=" + activeDuplicates
+                + " cadence=" + activeCadence
+                + " strategy=DISPLAY_BUFFER_HOLD"
+                + " queue=0"
                 + " verified=" + verify
                 + " candidates=" + ratesLabel(rates)
                 + " peak=" + compact(peak)
@@ -89,16 +100,21 @@ final class FrameMatchController {
 
     static synchronized String status(String packageName) {
         if (activePackage == null || !activePackage.equals(packageName) || activeRefresh <= 0f) {
-            return "FRAME_MATCH_STATUS active=false package=" + packageName;
+            return "FRAME_REPEAT_STATUS active=false package=" + packageName;
         }
         boolean verified = verifySettings(activeRefresh);
-        return "FRAME_MATCH_STATUS active=true"
+        return "FRAME_REPEAT_STATUS active=true"
                 + " package=" + packageName
                 + " fps=" + activeFps
                 + " source=" + activeFpsSource
                 + " refresh=" + trimFloat(activeRefresh)
                 + " ratio=" + ratioLabel(activeRefresh, activeFps)
                 + " multiple=" + activeMultiple
+                + " repeat=x" + activeMultiple
+                + " duplicates=" + activeDuplicates
+                + " cadence=" + activeCadence
+                + " strategy=DISPLAY_BUFFER_HOLD"
+                + " queue=0"
                 + " verified=" + verified;
     }
 
@@ -119,8 +135,10 @@ final class FrameMatchController {
         activeFps = 0;
         activeRefresh = 0f;
         activeMultiple = 0;
+        activeDuplicates = 0;
+        activeCadence = "OFF";
         activeFpsSource = "none";
-        append(out, "FRAME_MATCH=RESTORED");
+        append(out, "FRAME_REPEAT=RESTORED");
         return out.toString();
     }
 
@@ -234,13 +252,18 @@ final class FrameMatchController {
         }
 
         if (!exact.isEmpty()) {
+            // Para Repeat, múltiplo inteiro é o ponto principal. Entre os exatos,
+            // usa o refresh mais alto para reduzir o intervalo de scan/present.
             exact.sort(Comparator.comparingDouble((Match m) -> m.refresh).reversed());
-            return exact.get(0); // competitivo: maior múltiplo inteiro = menor latência de scan/present.
+            return exact.get(0);
         }
 
         if (!fallback.isEmpty()) {
-            // Sem múltiplo perfeito, prioriza refresh alto para reduzir o tamanho de cada ciclo.
-            fallback.sort(Comparator.comparingDouble((Match m) -> m.refresh).reversed());
+            // Se a tela não possui múltiplo perfeito, escolhe primeiro a menor
+            // irregularidade de cadência; em empate, o refresh mais alto.
+            fallback.sort(Comparator
+                    .comparingDouble((Match m) -> m.error)
+                    .thenComparing(Comparator.comparingDouble((Match m) -> m.refresh).reversed()));
             return fallback.get(0);
         }
 
@@ -280,6 +303,15 @@ final class FrameMatchController {
         int n = Math.max(1, Math.round(ratio));
         if (Math.abs(ratio - n) <= 0.035f) return n + ":1";
         return String.format(Locale.US, "%.2f:1", ratio);
+    }
+
+    private static String cadenceLabel(int multiple, boolean integer) {
+        if (!integer || multiple <= 0) return "ADAPTIVE";
+        if (multiple == 1) return "A,B,C,D";
+        if (multiple == 2) return "A,A,B,B";
+        if (multiple == 3) return "A,A,A,B,B,B";
+        if (multiple == 4) return "A,A,A,A,B,B,B,B";
+        return "HOLD_X" + multiple;
     }
 
     private static String ratesLabel(List<Float> rates) {

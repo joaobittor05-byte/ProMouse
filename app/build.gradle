@@ -10,8 +10,8 @@ android {
         applicationId 'com.leo.optimazer'
         minSdk 26
         targetSdk 35
-        versionCode 18
-        versionName '1.0.0-alpha17-universal-frame-repeat'
+        versionCode 19
+        versionName '1.0.0-alpha18-vsync-control'
     }
 
     sourceSets {

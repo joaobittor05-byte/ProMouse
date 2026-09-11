@@ -5,7 +5,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Caminho compatível usado quando a ROM aceita o Binder/permissão do Shizuku,
+ * Caminho compatível usado quando a ROM aceita o Binder/permissão do Shizuku,
  * mas não consegue iniciar UserService (caso conhecido em algumas ROMs Xiaomi/MediaTek).
  *
  * Mantém Frame Repeat, Touch Engine, resolução por compatibilidade e limpeza de RAM.
@@ -50,26 +50,26 @@ final class LeoFallbackDispatcher {
                 case "frame-apply":
                     requireLength(p, 4);
                     requirePackage(p[2]);
-                    return FrameMatchController.apply(p[2], parseFps(p[3]));
+                    return FallbackFrameController.apply(p[2], parseFps(p[3]));
                 case "frame-status":
                     requireLength(p, 3);
                     requirePackage(p[2]);
-                    return FrameMatchController.status(p[2]);
+                    return FallbackFrameController.status(p[2]);
                 case "frame-reset":
                     requireLength(p, 3);
                     requirePackage(p[2]);
-                    return FrameMatchController.reset(p[2]);
+                    return FallbackFrameController.reset(p[2]);
                 case "touch-apply":
                     requireLength(p, 7);
                     requirePackage(p[2]);
                     int level = Integer.parseInt(p[5]);
                     if (level < 1 || level > 100) throw new SecurityException("Touch fora do limite");
-                    return TouchEngineController.apply(
+                    return FallbackTouchController.apply(
                             p[2], "1".equals(p[3]), "1".equals(p[4]), level);
                 case "touch-reset":
                     requireLength(p, 3);
                     requirePackage(p[2]);
-                    return TouchEngineController.reset(p[2]);
+                    return FallbackTouchController.reset(p[2]);
                 case "density":
                     requireLength(p, 4);
                     requirePackage(p[2]);
@@ -125,8 +125,7 @@ final class LeoFallbackDispatcher {
         if (!found.isEmpty()) return found;
 
         String windows = PrivilegedShell.runAllowFailure("dumpsys window windows");
-        found = findPackage(windows, CURRENT_FOCUS);
-        return found;
+        return findPackage(windows, CURRENT_FOCUS);
     }
 
     private static String findPackage(String text, Pattern pattern) {

@@ -24,10 +24,10 @@ jobs:
         with:
           gradle-version: '8.7'
       - run: gradle :app:assembleDebug --stacktrace
-      - run: cp app/build/outputs/apk/debug/app-debug.apk LeoOptimazer-v1-alpha16-frame-repeat.apk
+      - run: cp app/build/outputs/apk/debug/app-debug.apk LeoOptimazer-v1-alpha16.1-shizuku-compat-fix.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LeoOptimazer-V1-Alpha16-Frame-Repeat
-          path: LeoOptimazer-v1-alpha16-frame-repeat.apk
+          name: LeoOptimazer-V1-Alpha16.1-Shizuku-Compat-Fix
+          path: LeoOptimazer-v1-alpha16.1-shizuku-compat-fix.apk
           if-no-files-found: error
           retention-days: 30

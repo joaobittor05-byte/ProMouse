@@ -10,18 +10,19 @@ public class LeoApplication extends Application {
         super.onCreate();
         ShizukuCore.initialize(this);
 
-        // Não faça bind do UserService dentro de Application.onCreate.
-        // Em algumas ROMs Xiaomi/MediaTek isso pode acontecer cedo demais e deixar
-        // a conexão presa. A tela de ativação inicia o bind após a UI estar pronta;
-        // se a ROM ainda bloquear UserService, o Shell Compat assume automaticamente.
-
+        // O bind do UserService continua atrasado para evitar o travamento observado
+        // em algumas ROMs. Os serviços usam UserService quando disponível e Shell Compat
+        // como fallback, sem amarrar o app a um fabricante ou processador específico.
         if (!ProfileStore.all(this).isEmpty()) {
-            try {
-                Intent intent = new Intent(this, MonitorService.class);
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
-                else startService(intent);
-            } catch (Throwable ignored) {
-            }
+            startCompatService(new Intent(this, MonitorService.class));
+            startCompatService(new Intent(this, FrameRepeatService.class));
         }
+    }
+
+    private void startCompatService(Intent intent) {
+        try {
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
+            else startService(intent);
+        } catch (Throwable ignored) {}
     }
 }

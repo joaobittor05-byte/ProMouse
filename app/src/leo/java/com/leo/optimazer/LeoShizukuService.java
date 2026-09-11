@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+@Keep
 public class LeoShizukuService extends ILeoShell.Stub {
     private static final Pattern PACKAGE = Pattern.compile("[a-zA-Z0-9_]+(?:\\.[a-zA-Z0-9_]+)+");
     private static final Pattern SCALE = Pattern.compile("DOWNSCALE_(30|35|40|45|50|55|60|65|70|75|80|85|90)");

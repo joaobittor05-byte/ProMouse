@@ -12,13 +12,12 @@ import rikka.shizuku.Shizuku;
 public final class ShizukuCore {
     public static final int REQUEST_CODE = 4105;
 
-    // Trocar a versão força o servidor Shizuku a recarregar o código do UserService.
-    private static final int USER_SERVICE_VERSION = 15;
-    private static final long BIND_TIMEOUT_MS = 12000L;
+    // Mudança do núcleo força o Shizuku a descartar qualquer UserService antigo.
+    private static final int USER_SERVICE_VERSION = 17;
+    private static final long BIND_TIMEOUT_MS = 6000L;
+    private static final long EXEC_BIND_GRACE_MS = 2500L;
     private static final Object LOCK = new Object();
 
-    // Alpha12-14 usavam este tag em daemon=true. Limpamos explicitamente para não
-    // deixar um processo privilegiado antigo preso depois de atualizar o APK.
     private static final String LEGACY_TAG = "leo_optimazer_shell";
     private static final String CORE_TAG = "leo_optimazer_core";
 
@@ -45,7 +44,9 @@ public final class ShizukuCore {
             service = null;
             binding = false;
             bindStartedAt = 0L;
-            lastBindError = "UserService desconectado";
+            lastBindError = isFallbackReady()
+                    ? "UserService desconectado • Shell Shizuku compatível disponível"
+                    : "UserService desconectado";
             synchronized (LOCK) { LOCK.notifyAll(); }
         }
     };
@@ -54,7 +55,8 @@ public final class ShizukuCore {
         lastBindError = "";
         if (hasPermission()) {
             cleanupLegacyServiceOnce();
-            bindUserService();
+            // Não força bind aqui. Em algumas ROMs Xiaomi/MediaTek o bind muito cedo,
+            // durante Application.onCreate, aumenta a chance do UserService travar.
         }
     };
 
@@ -72,7 +74,6 @@ public final class ShizukuCore {
         if (requestCode == REQUEST_CODE && grantResult == PackageManager.PERMISSION_GRANTED) {
             lastBindError = "";
             cleanupLegacyServiceOnce();
-            bindUserService();
         }
     };
 
@@ -126,7 +127,6 @@ public final class ShizukuCore {
                 service = null;
                 return false;
             }
-            // Confirma que o AIDL do processo remoto realmente responde, não apenas o Binder.
             int uid = local.getServiceUid();
             return uid == 0 || uid == 2000;
         } catch (Throwable t) {
@@ -136,12 +136,30 @@ public final class ShizukuCore {
         }
     }
 
+    /**
+     * Fallback para ROMs onde o Binder principal do Shizuku funciona, mas o UserService
+     * não consegue nascer. Usa o processo remoto de shell do próprio Shizuku.
+     */
+    public static boolean isFallbackReady() {
+        return hasPermission() && PrivilegedShell.canUseShizukuProcess();
+    }
+
+    public static boolean isOperational() {
+        return isReady() || isFallbackReady();
+    }
+
+    public static boolean isUsingFallback() {
+        return !isReady() && isFallbackReady();
+    }
+
     public static boolean isBinding() {
         if (binding && bindStartedAt > 0L
                 && SystemClock.elapsedRealtime() - bindStartedAt > BIND_TIMEOUT_MS) {
             binding = false;
             bindStartedAt = 0L;
-            lastBindError = "Tempo limite ao conectar UserService (12s)";
+            lastBindError = isFallbackReady()
+                    ? "UserService não respondeu • usando Shell Shizuku compatível"
+                    : "Tempo limite ao conectar UserService (6s)";
             synchronized (LOCK) { LOCK.notifyAll(); }
         }
         return binding;
@@ -158,10 +176,7 @@ public final class ShizukuCore {
 
     public static void requestPermission() {
         if (!isBinderAlive()) throw new IllegalStateException("Inicie o Shizuku primeiro");
-        if (hasPermission()) {
-            retryBind();
-            return;
-        }
+        if (hasPermission()) return;
         Shizuku.requestPermission(REQUEST_CODE);
     }
 
@@ -195,7 +210,6 @@ public final class ShizukuCore {
         try {
             Shizuku.unbindUserService(legacyArgs(), null, true);
         } catch (Throwable ignored) {
-            // Se não existir serviço antigo, não há nada para limpar.
         }
     }
 
@@ -218,7 +232,9 @@ public final class ShizukuCore {
         } catch (Throwable t) {
             binding = false;
             bindStartedAt = 0L;
-            lastBindError = "Falha no bind: " + safeMessage(t);
+            lastBindError = isFallbackReady()
+                    ? "UserService falhou • Shell Shizuku compatível ativo: " + safeMessage(t)
+                    : "Falha no bind: " + safeMessage(t);
             synchronized (LOCK) { LOCK.notifyAll(); }
         }
     }
@@ -233,22 +249,17 @@ public final class ShizukuCore {
             Shizuku.UserServiceArgs args = serviceArgs != null ? serviceArgs : newCoreArgs();
             Shizuku.unbindUserService(args, CONNECTION, true);
         } catch (Throwable ignored) {
-            // O serviço pode ainda não existir ou já ter morrido.
         }
 
-        // Segurança adicional: se o Binder remoto ainda estiver vivo, pede encerramento.
         if (local != null) {
             try { local.destroy(); } catch (Throwable ignored) {}
         }
         serviceArgs = null;
+        synchronized (LOCK) { LOCK.notifyAll(); }
     }
 
     public static void retryBind() {
-        if (!hasPermission()) return;
-        if (isReady()) return;
-
-        // Uma tentativa manual é realmente uma recriação limpa, não apenas outro bind
-        // no mesmo registro possivelmente travado.
+        if (!hasPermission() || isReady()) return;
         removeCurrentUserService();
         cleanupLegacyServiceOnce();
         lastBindError = "";
@@ -257,34 +268,60 @@ public final class ShizukuCore {
 
     public static String execute(String command) throws Exception {
         if (!hasPermission()) throw new IllegalStateException("Permissão do Shizuku não concedida");
-        bindUserService();
 
-        long deadline = SystemClock.elapsedRealtime() + BIND_TIMEOUT_MS;
+        ILeoShell local = service;
+        if (local != null && isReady()) {
+            try {
+                return local.execute(command);
+            } catch (Throwable t) {
+                service = null;
+                lastBindError = "UserService perdeu conexão: " + safeMessage(t);
+            }
+        }
+
+        // Dá uma janela curta para o caminho completo. Não bloqueia 12 segundos.
+        bindUserService();
+        long deadline = SystemClock.elapsedRealtime() + EXEC_BIND_GRACE_MS;
         while (!isReady() && SystemClock.elapsedRealtime() < deadline) {
             synchronized (LOCK) {
                 try {
-                    LOCK.wait(150L);
+                    LOCK.wait(120L);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException("Conexão Shizuku interrompida");
                 }
             }
-            if (!isReady() && !isBinding()) bindUserService();
         }
 
-        ILeoShell local = service;
-        if (local == null || !isReady()) {
-            String detail = getLastBindError();
-            throw new IllegalStateException(detail.isEmpty()
-                    ? "UserService do Shizuku não conectou" : detail);
+        local = service;
+        if (local != null && isReady()) {
+            try {
+                return local.execute(command);
+            } catch (Throwable t) {
+                service = null;
+                lastBindError = "UserService falhou durante execução: " + safeMessage(t);
+            }
         }
-        return local.execute(command);
+
+        // O UserService de algumas ROMs Xiaomi/MediaTek falha antes de criar a classe
+        // do Leo. Remove qualquer registro preso e segue pelo processo shell do Shizuku.
+        removeCurrentUserService();
+        if (isFallbackReady()) {
+            lastBindError = "UserService indisponível nesta ROM • Shell Shizuku compatível ativo";
+            return LeoFallbackDispatcher.execute(command);
+        }
+
+        String detail = getLastBindError();
+        throw new IllegalStateException(detail.isEmpty()
+                ? "Não foi possível iniciar UserService nem Shell Shizuku" : detail);
     }
 
     public static int getServiceUid() {
         ILeoShell local = service;
-        if (local == null) return -1;
-        try { return local.getServiceUid(); } catch (Exception ignored) { return -1; }
+        if (local != null) {
+            try { return local.getServiceUid(); } catch (Exception ignored) {}
+        }
+        return isFallbackReady() ? getBackendUid() : -1;
     }
 
     public static String runtimeDiagnostic() {
@@ -293,11 +330,12 @@ public final class ShizukuCore {
             int patch;
             try { patch = Shizuku.getServerPatchVersion(); } catch (Throwable ignored) { patch = -1; }
             int backend = getBackendUid();
+            String mode = isReady() ? "UserService" : (isFallbackReady() ? "Shell Compat" : "offline");
             return "Shizuku API " + api
                     + (patch >= 0 ? "." + patch : "")
                     + " • backend UID " + backend
-                    + " • Leo UserService v" + USER_SERVICE_VERSION
-                    + " • daemon=off";
+                    + " • Leo Core v" + USER_SERVICE_VERSION
+                    + " • modo=" + mode;
         } catch (Throwable t) {
             return "Diagnóstico de runtime indisponível: " + safeMessage(t);
         }
@@ -307,13 +345,17 @@ public final class ShizukuCore {
         if (!isManagerInstalled()) return "SHIZUKU NÃO INSTALADO";
         if (!isBinderAlive()) return "SHIZUKU PARADO";
         if (!hasPermission()) return "PERMISSÃO DO SHIZUKU PENDENTE";
-        if (!isReady()) {
-            String error = getLastBindError();
-            if (!error.isEmpty()) return "NÚCLEO NÃO CONECTOU • " + error;
-            return isBinding() ? "CONECTANDO AO NÚCLEO SHIZUKU" : "NÚCLEO SHIZUKU DESCONECTADO";
+        if (isReady()) {
+            int uid = getServiceUid();
+            return uid == 0 ? "SHIZUKU ROOT ATIVO" : "SHIZUKU SHELL ATIVO";
         }
-        int uid = getServiceUid();
-        return uid == 0 ? "SHIZUKU ROOT ATIVO" : "SHIZUKU SHELL ATIVO";
+        if (isFallbackReady()) {
+            int uid = getBackendUid();
+            return uid == 0 ? "SHIZUKU ROOT COMPAT ATIVO" : "SHIZUKU SHELL COMPAT ATIVO";
+        }
+        String error = getLastBindError();
+        if (!error.isEmpty()) return "NÚCLEO NÃO CONECTOU • " + error;
+        return isBinding() ? "CONECTANDO AO NÚCLEO SHIZUKU" : "NÚCLEO SHIZUKU DESCONECTADO";
     }
 
     private static String safeMessage(Throwable t) {

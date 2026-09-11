@@ -71,6 +71,15 @@ public class LeoShizukuService extends ILeoShell.Stub {
         if (p.length == 3 && "leo".equals(p[0]) && "touch-reset".equals(p[1])
                 && validPackage(p[2])) return;
 
+        if (p.length == 4 && "leo".equals(p[0]) && "frame-apply".equals(p[1])
+                && validPackage(p[2]) && validTargetFps(p[3])) return;
+
+        if (p.length == 3 && "leo".equals(p[0]) && "frame-status".equals(p[1])
+                && validPackage(p[2])) return;
+
+        if (p.length == 3 && "leo".equals(p[0]) && "frame-reset".equals(p[1])
+                && validPackage(p[2])) return;
+
         if (p.length == 2 && "am".equals(p[0]) && "kill-all".equals(p[1])) return;
 
         if (p.length == 3 && "am".equals(p[0]) && "force-stop".equals(p[1]) && validPackage(p[2])) return;
@@ -106,6 +115,12 @@ public class LeoShizukuService extends ILeoShell.Stub {
                             p[2], "1".equals(p[3]), "1".equals(p[4]), Integer.parseInt(p[5]));
                 case "touch-reset":
                     return TouchEngineController.reset(p[2]);
+                case "frame-apply":
+                    return FrameMatchController.apply(p[2], Integer.parseInt(p[3]));
+                case "frame-status":
+                    return FrameMatchController.status(p[2]);
+                case "frame-reset":
+                    return FrameMatchController.reset(p[2]);
                 default:
                     throw new SecurityException("Operação Leo não permitida");
             }
@@ -134,6 +149,15 @@ public class LeoShizukuService extends ILeoShell.Stub {
         try {
             int level = Integer.parseInt(value);
             return level >= 1 && level <= 100;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private static boolean validTargetFps(String value) {
+        try {
+            int fps = Integer.parseInt(value);
+            return fps == 0 || (fps >= 20 && fps <= 240);
         } catch (NumberFormatException e) {
             return false;
         }

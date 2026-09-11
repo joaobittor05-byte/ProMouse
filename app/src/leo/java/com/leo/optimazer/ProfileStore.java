@@ -25,21 +25,34 @@ public final class ProfileStore {
         public final int density;
         public final boolean restoreOnExit;
         public final boolean enabled;
-        /** Prioriza resposta do toque e modo desempenho enquanto o app está em primeiro plano. */
+        /** Prioriza resposta do toque via mecanismos AOSP enquanto o app está em primeiro plano. */
         public final boolean fastTouch;
-        /** Pede ao subsistema touch do fabricante maior estabilidade/suavidade de arrasto. */
+        /** Usa o resampling nativo do Android quando a ROM o mantém habilitado. */
         public final boolean linearDrag;
         /** Intensidade 1–100 do Touch Engine. */
         public final int touchLevel;
+        /** Procura um refresh múltiplo inteiro do FPS do jogo. */
+        public final boolean frameMatch;
+        /** 0 = AUTO por SurfaceFlinger; 20–240 = FPS alvo manual. */
+        public final int targetFps;
 
         public Profile(String packageName, int width, int height, int density,
                        boolean restoreOnExit, boolean enabled) {
-            this(packageName, width, height, density, restoreOnExit, enabled, true, true, 85);
+            this(packageName, width, height, density, restoreOnExit, enabled,
+                    true, true, 85, true, 0);
         }
 
         public Profile(String packageName, int width, int height, int density,
                        boolean restoreOnExit, boolean enabled,
                        boolean fastTouch, boolean linearDrag, int touchLevel) {
+            this(packageName, width, height, density, restoreOnExit, enabled,
+                    fastTouch, linearDrag, touchLevel, true, 0);
+        }
+
+        public Profile(String packageName, int width, int height, int density,
+                       boolean restoreOnExit, boolean enabled,
+                       boolean fastTouch, boolean linearDrag, int touchLevel,
+                       boolean frameMatch, int targetFps) {
             this.packageName = packageName;
             this.width = width;
             this.height = height;
@@ -49,6 +62,8 @@ public final class ProfileStore {
             this.fastTouch = fastTouch;
             this.linearDrag = linearDrag;
             this.touchLevel = Math.max(1, Math.min(100, touchLevel));
+            this.frameMatch = frameMatch;
+            this.targetFps = targetFps == 0 ? 0 : Math.max(20, Math.min(240, targetFps));
         }
     }
 
@@ -75,11 +90,11 @@ public final class ProfileStore {
                 migrated = Math.max(PerAppCompat.MIN_DEDICATED_DPI,
                         Math.min(PerAppCompat.MAX_DEDICATED_DPI, migrated));
 
-                String value = p[0] + "," + p[1] + "," + migrated + "," + p[3] + "," + p[4];
-                if (p.length >= 8) {
-                    value += "," + p[5] + "," + p[6] + "," + p[7];
-                }
-                editor.putString(entry.getKey(), value);
+                StringBuilder value = new StringBuilder();
+                value.append(p[0]).append(',').append(p[1]).append(',').append(migrated)
+                        .append(',').append(p[3]).append(',').append(p[4]);
+                for (int i = 5; i < p.length; i++) value.append(',').append(p[i]);
+                editor.putString(entry.getKey(), value.toString());
             } catch (Exception ignored) {}
         }
         editor.putBoolean(KEY_DPI_MODEL_V11, true).apply();
@@ -89,10 +104,12 @@ public final class ProfileStore {
         DisplayMetrics metrics = context.getResources().getDisplayMetrics();
         PerAppCompat.DpiLimits limits = PerAppCompat.limitsForResolution(profile.width, profile.height, metrics);
         int normalizedDpi = limits.clamp(profile.density);
+        int fps = profile.targetFps == 0 ? 0 : Math.max(20, Math.min(240, profile.targetFps));
 
         String value = profile.width + "," + profile.height + "," + normalizedDpi + "," +
                 profile.restoreOnExit + "," + profile.enabled + "," +
-                profile.fastTouch + "," + profile.linearDrag + "," + profile.touchLevel;
+                profile.fastTouch + "," + profile.linearDrag + "," + profile.touchLevel + "," +
+                profile.frameMatch + "," + fps;
         prefs(context).edit().putString(PREFIX + profile.packageName, value).apply();
 
         if (profile.enabled) ensureMonitor(context);
@@ -130,10 +147,12 @@ public final class ProfileStore {
     private static Profile decode(String packageName, String raw) {
         try {
             String[] p = raw.split(",", -1);
-            if (p.length != 5 && p.length != 8) return null;
+            if (p.length != 5 && p.length != 8 && p.length != 10) return null;
             boolean fast = p.length >= 8 ? Boolean.parseBoolean(p[5]) : true;
             boolean linear = p.length >= 8 ? Boolean.parseBoolean(p[6]) : true;
             int level = p.length >= 8 ? Integer.parseInt(p[7]) : 85;
+            boolean frameMatch = p.length >= 10 ? Boolean.parseBoolean(p[8]) : true;
+            int targetFps = p.length >= 10 ? Integer.parseInt(p[9]) : 0;
             return new Profile(
                     packageName,
                     Integer.parseInt(p[0]),
@@ -143,7 +162,9 @@ public final class ProfileStore {
                     Boolean.parseBoolean(p[4]),
                     fast,
                     linear,
-                    level
+                    level,
+                    frameMatch,
+                    targetFps
             );
         } catch (Exception ignored) {
             return null;

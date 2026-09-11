@@ -38,9 +38,9 @@ public class FrameRepeatActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         root.addView(text("FRAME REPEAT", 28, TEXT, true));
-        TextView sub = text("A → A → B → B • sem IA • sem previsão", 14, CYAN, true);
+        TextView sub = text("A → A → B → B • controle de cadência", 14, CYAN, true);
         sub.setPadding(0, dp(2), 0, dp(8)); root.addView(sub);
-        root.addView(text("Competitivo prioriza menor latência. Qualidade prioriza múltiplos perfeitos de FPS/Hz. Suave busca cadência estável com repetição moderada.", 12, MUTED, false));
+        root.addView(text("Agora o VSync do pipeline do Leo pode ficar em Automático, Ligado ou Desligado/Unlocked. Isso não desliga o VSync global do Android.", 12, MUTED, false));
 
         List<ProfileStore.Profile> profiles = ProfileStore.all(this);
         if (profiles.isEmpty()) {
@@ -53,6 +53,7 @@ public class FrameRepeatActivity extends Activity {
         }
 
         String[] labels = {"Competitivo", "Qualidade", "Suave"};
+        String[] vsyncLabels = {"Automático", "Ligado", "Desligado / Unlocked"};
         for (ProfileStore.Profile profile : profiles) {
             root.addView(space(14));
             LinearLayout box = card();
@@ -75,7 +76,18 @@ public class FrameRepeatActivity extends Activity {
             box.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
 
             TextView modeHelp = text(modeDescription(current), 12, MUTED, false);
-            modeHelp.setPadding(0, dp(5), 0, 0); box.addView(modeHelp);
+            modeHelp.setPadding(0, dp(5), 0, dp(8)); box.addView(modeHelp);
+
+            TextView vsyncLabel = text("VSync do Frame Repeat", 12, MUTED, true);
+            vsyncLabel.setPadding(0, dp(4), 0, dp(4)); box.addView(vsyncLabel);
+            Spinner vsyncSpinner = new Spinner(this);
+            vsyncSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, vsyncLabels));
+            String currentVsync = FrameRepeatPrefs.vsync(this, profile.packageName);
+            vsyncSpinner.setSelection(FrameRepeatPrefs.VSYNC_ON.equals(currentVsync) ? 1 : FrameRepeatPrefs.VSYNC_OFF.equals(currentVsync) ? 2 : 0);
+            box.addView(vsyncSpinner, new LinearLayout.LayoutParams(-1, dp(52)));
+
+            TextView vsyncHelp = text(vsyncDescription(currentVsync), 12, MUTED, false);
+            vsyncHelp.setPadding(0, dp(5), 0, 0); box.addView(vsyncHelp);
 
             toggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 FrameRepeatPrefs.setEnabled(this, profile.packageName, isChecked);
@@ -94,6 +106,18 @@ public class FrameRepeatActivity extends Activity {
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });
+            vsyncSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                boolean first = true;
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    String value = position == 1 ? FrameRepeatPrefs.VSYNC_ON : position == 2 ? FrameRepeatPrefs.VSYNC_OFF : FrameRepeatPrefs.VSYNC_AUTO;
+                    FrameRepeatPrefs.setVsync(FrameRepeatActivity.this, profile.packageName, value);
+                    vsyncHelp.setText(vsyncDescription(value));
+                    ensureFrameService();
+                    if (!first) Toast.makeText(FrameRepeatActivity.this, "VSync: " + FrameRepeatPrefs.friendlyVsync(value), Toast.LENGTH_SHORT).show();
+                    first = false;
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
             root.addView(box);
         }
 
@@ -107,7 +131,14 @@ public class FrameRepeatActivity extends Activity {
         String n = FrameRepeatPrefs.normalizeMode(mode);
         if (FrameRepeatPrefs.MODE_QUALITY.equals(n)) return "Qualidade: procura múltiplo inteiro de FPS/Hz para cadência mais limpa.";
         if (FrameRepeatPrefs.MODE_SMOOTH.equals(n)) return "Suave: evita repetição excessiva e busca estabilidade visual.";
-        return "Competitivo: usa o maior refresh útil e prioriza o frame mais recente para reduzir latência percebida.";
+        return "Competitivo: usa o maior refresh útil e prioriza resposta/latência.";
+    }
+
+    private String vsyncDescription(String value) {
+        String n = FrameRepeatPrefs.normalizeVsync(value);
+        if (FrameRepeatPrefs.VSYNC_ON.equals(n)) return "Ligado: o Leo trava min/peak no refresh escolhido para manter cadência estável.";
+        if (FrameRepeatPrefs.VSYNC_OFF.equals(n)) return "Desligado / Unlocked: o Leo não força o lock mínimo de refresh; prioriza liberdade de apresentação e menor latência percebida.";
+        return "Automático: Competitivo tende a Unlocked; Qualidade tende a VSync ligado; Suave usa sincronismo adaptativo.";
     }
 
     private void ensureFrameService() {

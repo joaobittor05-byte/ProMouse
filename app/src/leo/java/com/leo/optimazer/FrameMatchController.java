@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 
 /**
  * Leo Frame Repeat / Frame Match universal.
- * Não gera imagens: mantém o último buffer até o próximo frame real e tenta casar FPS/Hz.
+ * O controle de VSync aqui regula o lock de cadência do Leo; não desliga o VSync global do Android.
  */
 final class FrameMatchController {
     private static final Pattern RATE_PATTERN = Pattern.compile("(?i)(?:refreshRate|vsyncRate|renderFrameRate|fps)\\s*[=:]\\s*([0-9]{2,3}(?:\\.[0-9]+)?)");
@@ -20,6 +20,7 @@ final class FrameMatchController {
 
     private static String activePackage;
     private static String activeMode = FrameRepeatPrefs.MODE_COMPETITIVE;
+    private static String activeVsync = FrameRepeatPrefs.VSYNC_AUTO;
     private static String originalMinRefresh;
     private static String originalPeakRefresh;
     private static boolean refreshCaptured;
@@ -33,11 +34,18 @@ final class FrameMatchController {
     private FrameMatchController() {}
 
     static synchronized String apply(String packageName, int requestedFps) {
-        return apply(packageName, requestedFps, FrameRepeatPrefs.MODE_COMPETITIVE);
+        return apply(packageName, requestedFps, FrameRepeatPrefs.MODE_COMPETITIVE, FrameRepeatPrefs.VSYNC_AUTO);
     }
 
     static synchronized String apply(String packageName, int requestedFps, String requestedMode) {
+        return apply(packageName, requestedFps, requestedMode, FrameRepeatPrefs.VSYNC_AUTO);
+    }
+
+    static synchronized String apply(String packageName, int requestedFps, String requestedMode, String requestedVsync) {
         String mode = FrameRepeatPrefs.normalizeMode(requestedMode);
+        String vsync = FrameRepeatPrefs.normalizeVsync(requestedVsync);
+        String effectiveVsync = resolveVsync(mode, vsync);
+
         int fps;
         String source;
         if (requestedFps <= 0) {
@@ -60,11 +68,11 @@ final class FrameMatchController {
 
         Match match = chooseMatch(fps, rates, mode);
         String target = trimFloat(match.refresh);
-        String peak = run("settings put system peak_refresh_rate " + target);
-        String min = run("settings put system min_refresh_rate " + target);
+        RefreshResult refreshResult = applyRefreshPolicy(match.refresh, effectiveVsync);
 
         activePackage = packageName;
         activeMode = mode;
+        activeVsync = vsync;
         activeFps = fps;
         activeRefresh = match.refresh;
         activeMultiple = match.multiple;
@@ -75,6 +83,8 @@ final class FrameMatchController {
         return "FRAME_REPEAT_OK"
                 + " package=" + packageName
                 + " mode=" + mode
+                + " vsync=" + vsync
+                + " vsync_effective=" + effectiveVsync
                 + " fps=" + fps
                 + " source=" + source
                 + " refresh=" + target
@@ -86,19 +96,22 @@ final class FrameMatchController {
                 + " cadence=" + activeCadence
                 + " strategy=DISPLAY_BUFFER_HOLD"
                 + " queue=0"
-                + " verified=" + verifySettings(match.refresh)
+                + " verified=" + verifyPolicy(match.refresh, effectiveVsync)
                 + " candidates=" + ratesLabel(rates)
-                + " peak=" + compact(peak)
-                + " min=" + compact(min);
+                + " peak=" + compact(refreshResult.peak)
+                + " min=" + compact(refreshResult.min);
     }
 
     static synchronized String status(String packageName) {
         if (activePackage == null || !activePackage.equals(packageName) || activeRefresh <= 0f) {
             return "FRAME_REPEAT_STATUS active=false package=" + packageName;
         }
+        String effective = resolveVsync(activeMode, activeVsync);
         return "FRAME_REPEAT_STATUS active=true"
                 + " package=" + packageName
                 + " mode=" + activeMode
+                + " vsync=" + activeVsync
+                + " vsync_effective=" + effective
                 + " fps=" + activeFps
                 + " source=" + activeFpsSource
                 + " refresh=" + trimFloat(activeRefresh)
@@ -109,7 +122,7 @@ final class FrameMatchController {
                 + " cadence=" + activeCadence
                 + " strategy=DISPLAY_BUFFER_HOLD"
                 + " queue=0"
-                + " verified=" + verifySettings(activeRefresh);
+                + " verified=" + verifyPolicy(activeRefresh, effective);
     }
 
     static synchronized String reset(String packageName) {
@@ -124,6 +137,7 @@ final class FrameMatchController {
         originalPeakRefresh = null;
         if (packageName.equals(activePackage)) activePackage = null;
         activeMode = FrameRepeatPrefs.MODE_COMPETITIVE;
+        activeVsync = FrameRepeatPrefs.VSYNC_AUTO;
         activeFps = 0;
         activeRefresh = 0f;
         activeMultiple = 0;
@@ -132,6 +146,35 @@ final class FrameMatchController {
         activeFpsSource = "none";
         append(out, "FRAME_REPEAT=RESTORED");
         return out.toString();
+    }
+
+    private static String resolveVsync(String mode, String requested) {
+        String v = FrameRepeatPrefs.normalizeVsync(requested);
+        if (!FrameRepeatPrefs.VSYNC_AUTO.equals(v)) return v;
+        if (FrameRepeatPrefs.MODE_QUALITY.equals(mode)) return FrameRepeatPrefs.VSYNC_ON;
+        if (FrameRepeatPrefs.MODE_COMPETITIVE.equals(mode)) return FrameRepeatPrefs.VSYNC_OFF;
+        return FrameRepeatPrefs.VSYNC_AUTO; // Suave = adaptativo: peak controlado, mínimo restaurado.
+    }
+
+    private static RefreshResult applyRefreshPolicy(float targetRefresh, String effectiveVsync) {
+        String target = trimFloat(targetRefresh);
+        String peak = run("settings put system peak_refresh_rate " + target);
+        String min;
+        if (FrameRepeatPrefs.VSYNC_ON.equals(effectiveVsync)) {
+            min = run("settings put system min_refresh_rate " + target);
+        } else {
+            // Unlocked/Auto: não prende o refresh mínimo. Mantém o comportamento original da ROM.
+            min = restoreSetting("min_refresh_rate", originalMinRefresh);
+        }
+        return new RefreshResult(peak, min);
+    }
+
+    private static boolean verifyPolicy(float target, String effectiveVsync) {
+        Float peak = parsePositiveFloat(shellValue("settings get system peak_refresh_rate"));
+        if (peak == null || Math.abs(peak - target) >= 0.6f) return false;
+        if (!FrameRepeatPrefs.VSYNC_ON.equals(effectiveVsync)) return true;
+        Float min = parsePositiveFloat(shellValue("settings get system min_refresh_rate"));
+        return min != null && Math.abs(min - target) < 0.6f;
     }
 
     private static Match chooseMatch(int fps, List<Float> rates, String mode) {
@@ -150,7 +193,6 @@ final class FrameMatchController {
         }
 
         if (FrameRepeatPrefs.MODE_COMPETITIVE.equals(mode)) {
-            // Menor latência percebida: maior refresh disponível. Frame real sempre tem prioridade.
             candidates.sort(Comparator.comparingDouble((Match m) -> m.refresh).reversed());
             return candidates.get(0);
         }
@@ -159,7 +201,6 @@ final class FrameMatchController {
         for (Match m : candidates) if (m.integer) exact.add(m);
 
         if (FrameRepeatPrefs.MODE_SMOOTH.equals(mode) && !exact.isEmpty()) {
-            // Prefere repetição moderada (x2), depois menor erro e maior refresh.
             exact.sort(Comparator
                     .comparingInt((Match m) -> Math.abs(m.multiple - 2))
                     .thenComparingDouble(m -> m.error)
@@ -168,7 +209,6 @@ final class FrameMatchController {
         }
 
         if (!exact.isEmpty()) {
-            // Qualidade: múltiplo perfeito e maior frequência entre os perfeitos.
             exact.sort(Comparator.comparingDouble((Match m) -> m.refresh).reversed());
             return exact.get(0);
         }
@@ -248,11 +288,6 @@ final class FrameMatchController {
         originalPeakRefresh = shellValue("settings get system peak_refresh_rate");
         refreshCaptured = true;
     }
-    private static boolean verifySettings(float target) {
-        Float peak = parsePositiveFloat(shellValue("settings get system peak_refresh_rate"));
-        Float min = parsePositiveFloat(shellValue("settings get system min_refresh_rate"));
-        return peak != null && min != null && Math.abs(peak - target) < 0.6f && Math.abs(min - target) < 0.6f;
-    }
     private static String restoreSetting(String key, String value) {
         return value == null || value.isEmpty() || "null".equalsIgnoreCase(value)
                 ? run("settings delete system " + key)
@@ -289,6 +324,7 @@ final class FrameMatchController {
     private static String trimFloat(float value) { return Math.abs(value - Math.round(value)) < 0.01f ? String.valueOf(Math.round(value)) : String.format(Locale.US, "%.2f", value); }
     private static void append(StringBuilder out, String value) { if (value == null || value.trim().isEmpty()) return; if (out.length() > 0) out.append(' '); out.append(value.trim()); }
 
+    private static final class RefreshResult { final String peak; final String min; RefreshResult(String peak, String min) { this.peak = peak; this.min = min; } }
     private static final class FpsSample { final int fps; final String source; FpsSample(int fps, String source) { this.fps = fps; this.source = source; } }
     private static final class Match { final float refresh; final int multiple; final boolean integer; final float error; Match(float refresh, int multiple, boolean integer, float error) { this.refresh = refresh; this.multiple = multiple; this.integer = integer; this.error = error; } }
 }

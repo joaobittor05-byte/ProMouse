@@ -46,8 +46,11 @@ public class LeoShizukuService extends ILeoShell.Stub {
         if (p.length == 3 && "leo".equals(p[0]) && "density-status".equals(p[1]) && validPackage(p[2])) return;
         if (p.length == 7 && "leo".equals(p[0]) && "touch-apply".equals(p[1]) && validPackage(p[2]) && validBool(p[3]) && validBool(p[4]) && validTouchLevel(p[5]) && "v1".equals(p[6])) return;
         if (p.length == 3 && "leo".equals(p[0]) && "touch-reset".equals(p[1]) && validPackage(p[2])) return;
-        if ((p.length == 4 || p.length == 5) && "leo".equals(p[0]) && "frame-apply".equals(p[1])
-                && validPackage(p[2]) && validTargetFps(p[3]) && (p.length == 4 || validMode(p[4]))) return;
+        if ((p.length == 4 || p.length == 5 || p.length == 6)
+                && "leo".equals(p[0]) && "frame-apply".equals(p[1])
+                && validPackage(p[2]) && validTargetFps(p[3])
+                && (p.length < 5 || validMode(p[4]))
+                && (p.length < 6 || validVsync(p[5]))) return;
         if (p.length == 3 && "leo".equals(p[0]) && "frame-status".equals(p[1]) && validPackage(p[2])) return;
         if (p.length == 3 && "leo".equals(p[0]) && "frame-reset".equals(p[1]) && validPackage(p[2])) return;
         if (p.length == 2 && "am".equals(p[0]) && "kill-all".equals(p[1])) return;
@@ -72,7 +75,11 @@ public class LeoShizukuService extends ILeoShell.Stub {
                 case "density-status": return TaskDensityController.status(p[2]);
                 case "touch-apply": return TouchEngineController.apply(p[2], "1".equals(p[3]), "1".equals(p[4]), Integer.parseInt(p[5]));
                 case "touch-reset": return TouchEngineController.reset(p[2]);
-                case "frame-apply": return FrameMatchController.apply(p[2], Integer.parseInt(p[3]), p.length >= 5 ? p[4] : FrameRepeatPrefs.MODE_COMPETITIVE);
+                case "frame-apply": {
+                    String mode = p.length >= 5 ? p[4] : FrameRepeatPrefs.MODE_COMPETITIVE;
+                    String vsync = p.length >= 6 ? p[5] : FrameRepeatPrefs.VSYNC_AUTO;
+                    return FrameMatchController.apply(p[2], Integer.parseInt(p[3]), mode, vsync);
+                }
                 case "frame-status": return FrameMatchController.status(p[2]);
                 case "frame-reset": return FrameMatchController.reset(p[2]);
                 default: throw new SecurityException("Operação Leo não permitida");
@@ -88,6 +95,9 @@ public class LeoShizukuService extends ILeoShell.Stub {
     private static boolean validTargetFps(String value) { try { int fps = Integer.parseInt(value); return fps == 0 || (fps >= 20 && fps <= 240); } catch (Exception e) { return false; } }
     private static boolean validMode(String value) {
         return FrameRepeatPrefs.MODE_COMPETITIVE.equals(value) || FrameRepeatPrefs.MODE_QUALITY.equals(value) || FrameRepeatPrefs.MODE_SMOOTH.equals(value);
+    }
+    private static boolean validVsync(String value) {
+        return FrameRepeatPrefs.VSYNC_AUTO.equals(value) || FrameRepeatPrefs.VSYNC_ON.equals(value) || FrameRepeatPrefs.VSYNC_OFF.equals(value);
     }
 
     private static String runShell(String command) {

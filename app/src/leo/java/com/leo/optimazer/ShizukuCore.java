@@ -12,7 +12,6 @@ import rikka.shizuku.Shizuku;
 public final class ShizukuCore {
     public static final int REQUEST_CODE = 4105;
 
-    // Mudança do núcleo força o Shizuku a descartar qualquer UserService antigo.
     private static final int USER_SERVICE_VERSION = 17;
     private static final long BIND_TIMEOUT_MS = 6000L;
     private static final long EXEC_BIND_GRACE_MS = 2500L;
@@ -28,6 +27,8 @@ public final class ShizukuCore {
     private static volatile String lastBindError = "";
     private static volatile Shizuku.UserServiceArgs serviceArgs;
     private static volatile boolean legacyCleanupAttempted;
+    // Depois de uma falha real, evita tentar UserService em todo comando/tick do monitor.
+    private static volatile boolean preferFallback;
 
     private ShizukuCore() {}
 
@@ -36,6 +37,7 @@ public final class ShizukuCore {
             service = ILeoShell.Stub.asInterface(binder);
             binding = false;
             bindStartedAt = 0L;
+            preferFallback = false;
             lastBindError = "";
             synchronized (LOCK) { LOCK.notifyAll(); }
         }
@@ -44,8 +46,9 @@ public final class ShizukuCore {
             service = null;
             binding = false;
             bindStartedAt = 0L;
-            lastBindError = isFallbackReady()
-                    ? "UserService desconectado • Shell Shizuku compatível disponível"
+            preferFallback = isFallbackReady();
+            lastBindError = preferFallback
+                    ? "UserService desconectado • Shell Shizuku compatível ativo"
                     : "UserService desconectado";
             synchronized (LOCK) { LOCK.notifyAll(); }
         }
@@ -53,11 +56,8 @@ public final class ShizukuCore {
 
     private static final Shizuku.OnBinderReceivedListener BINDER_RECEIVED = () -> {
         lastBindError = "";
-        if (hasPermission()) {
-            cleanupLegacyServiceOnce();
-            // Não força bind aqui. Em algumas ROMs Xiaomi/MediaTek o bind muito cedo,
-            // durante Application.onCreate, aumenta a chance do UserService travar.
-        }
+        preferFallback = false;
+        if (hasPermission()) cleanupLegacyServiceOnce();
     };
 
     private static final Shizuku.OnBinderDeadListener BINDER_DEAD = () -> {
@@ -66,6 +66,7 @@ public final class ShizukuCore {
         bindStartedAt = 0L;
         serviceArgs = null;
         legacyCleanupAttempted = false;
+        preferFallback = false;
         lastBindError = "Binder do Shizuku morreu";
         synchronized (LOCK) { LOCK.notifyAll(); }
     };
@@ -73,6 +74,7 @@ public final class ShizukuCore {
     private static final Shizuku.OnRequestPermissionResultListener PERMISSION_RESULT = (requestCode, grantResult) -> {
         if (requestCode == REQUEST_CODE && grantResult == PackageManager.PERMISSION_GRANTED) {
             lastBindError = "";
+            preferFallback = false;
             cleanupLegacyServiceOnce();
         }
     };
@@ -136,10 +138,6 @@ public final class ShizukuCore {
         }
     }
 
-    /**
-     * Fallback para ROMs onde o Binder principal do Shizuku funciona, mas o UserService
-     * não consegue nascer. Usa o processo remoto de shell do próprio Shizuku.
-     */
     public static boolean isFallbackReady() {
         return hasPermission() && PrivilegedShell.canUseShizukuProcess();
     }
@@ -157,9 +155,12 @@ public final class ShizukuCore {
                 && SystemClock.elapsedRealtime() - bindStartedAt > BIND_TIMEOUT_MS) {
             binding = false;
             bindStartedAt = 0L;
-            lastBindError = isFallbackReady()
-                    ? "UserService não respondeu • usando Shell Shizuku compatível"
-                    : "Tempo limite ao conectar UserService (6s)";
+            if (isFallbackReady()) {
+                preferFallback = true;
+                lastBindError = "UserService não respondeu • Shell Shizuku compatível ativo";
+            } else {
+                lastBindError = "Tempo limite ao conectar UserService (6s)";
+            }
             synchronized (LOCK) { LOCK.notifyAll(); }
         }
         return binding;
@@ -219,7 +220,7 @@ public final class ShizukuCore {
             lastBindError = "LeoApplication ainda não inicializado";
             return;
         }
-        if (!hasPermission() || isReady()) return;
+        if (!hasPermission() || isReady() || preferFallback) return;
         if (isBinding()) return;
 
         cleanupLegacyServiceOnce();
@@ -232,9 +233,12 @@ public final class ShizukuCore {
         } catch (Throwable t) {
             binding = false;
             bindStartedAt = 0L;
-            lastBindError = isFallbackReady()
-                    ? "UserService falhou • Shell Shizuku compatível ativo: " + safeMessage(t)
-                    : "Falha no bind: " + safeMessage(t);
+            if (isFallbackReady()) {
+                preferFallback = true;
+                lastBindError = "UserService falhou • Shell Shizuku compatível ativo: " + safeMessage(t);
+            } else {
+                lastBindError = "Falha no bind: " + safeMessage(t);
+            }
             synchronized (LOCK) { LOCK.notifyAll(); }
         }
     }
@@ -258,8 +262,10 @@ public final class ShizukuCore {
         synchronized (LOCK) { LOCK.notifyAll(); }
     }
 
+    /** Tentativa manual: libera o modo compatível e tenta recriar o UserService do zero. */
     public static void retryBind() {
         if (!hasPermission() || isReady()) return;
+        preferFallback = false;
         removeCurrentUserService();
         cleanupLegacyServiceOnce();
         lastBindError = "";
@@ -268,6 +274,10 @@ public final class ShizukuCore {
 
     public static String execute(String command) throws Exception {
         if (!hasPermission()) throw new IllegalStateException("Permissão do Shizuku não concedida");
+
+        if (preferFallback && isFallbackReady()) {
+            return LeoFallbackDispatcher.execute(command);
+        }
 
         ILeoShell local = service;
         if (local != null && isReady()) {
@@ -279,10 +289,9 @@ public final class ShizukuCore {
             }
         }
 
-        // Dá uma janela curta para o caminho completo. Não bloqueia 12 segundos.
         bindUserService();
         long deadline = SystemClock.elapsedRealtime() + EXEC_BIND_GRACE_MS;
-        while (!isReady() && SystemClock.elapsedRealtime() < deadline) {
+        while (!isReady() && !preferFallback && SystemClock.elapsedRealtime() < deadline) {
             synchronized (LOCK) {
                 try {
                     LOCK.wait(120L);
@@ -303,10 +312,9 @@ public final class ShizukuCore {
             }
         }
 
-        // O UserService de algumas ROMs Xiaomi/MediaTek falha antes de criar a classe
-        // do Leo. Remove qualquer registro preso e segue pelo processo shell do Shizuku.
         removeCurrentUserService();
         if (isFallbackReady()) {
+            preferFallback = true;
             lastBindError = "UserService indisponível nesta ROM • Shell Shizuku compatível ativo";
             return LeoFallbackDispatcher.execute(command);
         }

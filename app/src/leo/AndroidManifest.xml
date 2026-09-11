@@ -10,6 +10,8 @@
         android:name=".LeoApplication"
         android:allowBackup="true"
         android:label="Leo Optimazer"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.LeoOptimazer">
 
         <meta-data
@@ -24,7 +26,7 @@
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <activity
-            android:name=".ActivationActivity"
+            android:name=".DashboardActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -32,9 +34,9 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="false" />
+        <activity android:name=".ActivationActivity" android:exported="false" />
+        <activity android:name=".FrameRepeatActivity" android:exported="false" />
+        <activity android:name=".MainActivity" android:exported="false" />
 
         <service
             android:name=".MonitorService"
@@ -42,7 +44,16 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Temporizador de limpeza de RAM solicitado pelo usuário usando Shizuku" />
+                android:value="Temporizador de limpeza de RAM e perfis por aplicativo usando Shizuku" />
+        </service>
+
+        <service
+            android:name=".FrameRepeatService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Frame Repeat por aplicativo solicitado pelo usuário usando Shizuku" />
         </service>
     </application>
 </manifest>

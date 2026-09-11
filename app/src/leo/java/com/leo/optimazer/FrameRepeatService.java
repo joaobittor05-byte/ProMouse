@@ -21,6 +21,7 @@ public class FrameRepeatService extends Service {
     private Handler worker;
     private String activePackage;
     private String activeMode = "OFF";
+    private String activeVsync = FrameRepeatPrefs.VSYNC_AUTO;
     private int activeFps = -1;
     private long nextVerifyAt;
 
@@ -35,17 +36,12 @@ public class FrameRepeatService extends Service {
         worker.post(tick);
     }
 
-    @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        return START_STICKY;
-    }
+    @Override public int onStartCommand(Intent intent, int flags, int startId) { return START_STICKY; }
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
-            try {
-                sync();
-            } catch (Throwable t) {
-                updateNotification("Frame Repeat limitado • " + safe(t));
-            }
+            try { sync(); }
+            catch (Throwable t) { updateNotification("Frame Repeat limitado • " + safe(t)); }
             if (worker != null) worker.postDelayed(this, 650L);
         }
     };
@@ -59,7 +55,6 @@ public class FrameRepeatService extends Service {
 
         String top = ShizukuCore.execute("leo top").trim();
         if (top.isEmpty()) return;
-
         if (activePackage != null && !activePackage.equals(top)) resetActive();
 
         ProfileStore.Profile profile = ProfileStore.get(this, top);
@@ -71,18 +66,25 @@ public class FrameRepeatService extends Service {
         }
 
         String mode = FrameRepeatPrefs.mode(this, top);
+        String vsync = FrameRepeatPrefs.vsync(this, top);
         int fps = profile.targetFps;
         long now = SystemClock.elapsedRealtime();
-        boolean changed = !top.equals(activePackage) || !mode.equals(activeMode) || fps != activeFps;
+        boolean changed = !top.equals(activePackage)
+                || !mode.equals(activeMode)
+                || !vsync.equals(activeVsync)
+                || fps != activeFps;
 
         if (changed || now >= nextVerifyAt) {
-            String command = "leo frame-apply " + top + " " + fps + " " + mode;
+            String command = "leo frame-apply " + top + " " + fps + " " + mode + " " + vsync;
             String result = ShizukuCore.execute(command);
             activePackage = top;
             activeMode = mode;
+            activeVsync = vsync;
             activeFps = fps;
             nextVerifyAt = now + 7000L;
-            updateNotification("Frame Repeat • " + FrameRepeatPrefs.friendlyName(mode) + " • " + summarize(result));
+            updateNotification("Frame Repeat • " + FrameRepeatPrefs.friendlyName(mode)
+                    + " • VSync " + FrameRepeatPrefs.friendlyVsync(vsync)
+                    + " • " + summarize(result));
         }
     }
 
@@ -91,11 +93,13 @@ public class FrameRepeatService extends Service {
         String fps = token(result, "fps");
         String repeat = token(result, "repeat");
         String cadence = token(result, "cadence");
+        String vsync = token(result, "vsync");
         StringBuilder b = new StringBuilder();
         if (!fps.isEmpty()) b.append(fps).append(" FPS");
         if (!refresh.isEmpty()) b.append(b.length() == 0 ? "" : " → ").append(refresh).append(" Hz");
         if (!repeat.isEmpty()) b.append(" • ").append(repeat);
         if (!cadence.isEmpty()) b.append(" • ").append(cadence);
+        if (!vsync.isEmpty()) b.append(" • vsync=").append(vsync);
         return b.length() == 0 ? "ativo" : b.toString();
     }
 
@@ -114,6 +118,7 @@ public class FrameRepeatService extends Service {
         }
         activePackage = null;
         activeMode = "OFF";
+        activeVsync = FrameRepeatPrefs.VSYNC_AUTO;
         activeFps = -1;
         nextVerifyAt = 0L;
     }

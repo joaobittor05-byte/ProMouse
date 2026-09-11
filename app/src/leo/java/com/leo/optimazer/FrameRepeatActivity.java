@@ -8,7 +8,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
@@ -26,15 +25,8 @@ public class FrameRepeatActivity extends Activity {
     private static final int MUTED = Color.rgb(150, 164, 188);
     private static final int CYAN = Color.rgb(61, 214, 255);
 
-    @Override protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        render();
-    }
-
-    @Override protected void onResume() {
-        super.onResume();
-        render();
-    }
+    @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); render(); }
+    @Override protected void onResume() { super.onResume(); render(); }
 
     private void render() {
         ScrollView scroll = new ScrollView(this);
@@ -66,7 +58,7 @@ public class FrameRepeatActivity extends Activity {
             LinearLayout box = card();
             box.addView(text(profile.packageName, 15, TEXT, true));
 
-            boolean enabled = FrameRepeatPrefs.isEnabled(this, profile.packageName, profile.frameMatch);
+            boolean enabled = FrameRepeatPrefs.isEnabled(this, profile.packageName, true);
             CheckBox toggle = new CheckBox(this);
             toggle.setText("Ativar Frame Repeat");
             toggle.setTextColor(TEXT);
@@ -77,8 +69,7 @@ public class FrameRepeatActivity extends Activity {
             TextView modeLabel = text("Modo", 12, MUTED, true);
             modeLabel.setPadding(0, dp(4), 0, dp(4)); box.addView(modeLabel);
             Spinner spinner = new Spinner(this);
-            ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels);
-            spinner.setAdapter(adapter);
+            spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
             String current = FrameRepeatPrefs.mode(this, profile.packageName);
             spinner.setSelection(FrameRepeatPrefs.MODE_QUALITY.equals(current) ? 1 : FrameRepeatPrefs.MODE_SMOOTH.equals(current) ? 2 : 0);
             box.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
@@ -88,7 +79,7 @@ public class FrameRepeatActivity extends Activity {
 
             toggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 FrameRepeatPrefs.setEnabled(this, profile.packageName, isChecked);
-                ensureMonitor();
+                ensureFrameService();
                 Toast.makeText(this, isChecked ? "Frame Repeat ativado" : "Frame Repeat desativado", Toast.LENGTH_SHORT).show();
             });
             spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
@@ -97,19 +88,19 @@ public class FrameRepeatActivity extends Activity {
                     String mode = position == 1 ? FrameRepeatPrefs.MODE_QUALITY : position == 2 ? FrameRepeatPrefs.MODE_SMOOTH : FrameRepeatPrefs.MODE_COMPETITIVE;
                     FrameRepeatPrefs.setMode(FrameRepeatActivity.this, profile.packageName, mode);
                     modeHelp.setText(modeDescription(mode));
-                    ensureMonitor();
+                    ensureFrameService();
                     if (!first) Toast.makeText(FrameRepeatActivity.this, "Modo: " + FrameRepeatPrefs.friendlyName(mode), Toast.LENGTH_SHORT).show();
                     first = false;
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });
-
             root.addView(box);
         }
 
         TextView footer = text("Compatibilidade por capacidade: Snapdragon, MediaTek, Exynos, Tensor, Unisoc e outros SoCs Android.", 11, MUTED, false);
         footer.setGravity(Gravity.CENTER); footer.setPadding(0, dp(20), 0, 0); root.addView(footer);
         setContentView(scroll);
+        ensureFrameService();
     }
 
     private String modeDescription(String mode) {
@@ -119,21 +110,18 @@ public class FrameRepeatActivity extends Activity {
         return "Competitivo: usa o maior refresh útil e prioriza o frame mais recente para reduzir latência percebida.";
     }
 
-    private void ensureMonitor() {
+    private void ensureFrameService() {
         try {
-            Intent intent = new Intent(this, MonitorService.class);
+            Intent intent = new Intent(this, FrameRepeatService.class);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
         } catch (Throwable ignored) {}
     }
 
     private LinearLayout card() {
         LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(dp(16), dp(16), dp(16), dp(16));
-        GradientDrawable bg = new GradientDrawable(); bg.setColor(CARD); bg.setCornerRadius(dp(18)); bg.setStroke(dp(1), Color.rgb(35, 49, 72));
-        l.setBackground(bg); return l;
+        GradientDrawable bg = new GradientDrawable(); bg.setColor(CARD); bg.setCornerRadius(dp(18)); bg.setStroke(dp(1), Color.rgb(35, 49, 72)); l.setBackground(bg); return l;
     }
-    private TextView text(String s, int sp, int color, boolean bold) {
-        TextView v = new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(color); if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD); return v;
-    }
+    private TextView text(String s, int sp, int color, boolean bold) { TextView v = new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(color); if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD); return v; }
     private View space(int h) { View v = new View(this); v.setLayoutParams(new LinearLayout.LayoutParams(1, dp(h))); return v; }
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 }

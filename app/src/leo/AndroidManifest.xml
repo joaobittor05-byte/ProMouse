@@ -35,6 +35,7 @@
         </activity>
 
         <activity android:name=".ActivationActivity" android:exported="false" />
+        <activity android:name=".DiagnosticsActivity" android:exported="false" />
         <activity android:name=".FrameRepeatActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="false" />
 

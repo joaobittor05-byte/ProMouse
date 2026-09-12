@@ -34,7 +34,7 @@ public class ActivationActivity extends Activity {
     private TextView permissionStatus;
     private TextView coreStatus;
     private TextView diagnosticStatus;
-    private Button continueButton;
+    private Button continueButton,connectButton;
 
     private final Runnable refreshLoop = new Runnable() {
         @Override public void run() {
@@ -96,120 +96,20 @@ public class ActivationActivity extends Activity {
         super.onDestroy();
     }
 
-    private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(22), dp(28), dp(22), dp(40));
-        scroll.addView(root, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        root.addView(text("LEO OPTIMAZER", 28, TEXT, true));
-        TextView subtitle = text("Núcleo principal • Shizuku", 15, MUTED, false);
-        subtitle.setPadding(0, dp(3), 0, dp(22));
-        root.addView(subtitle);
-
-        LinearLayout card = card();
-        managerStatus = text("● Shizuku: verificando…", 15, TEXT, true);
-        serverStatus = text("● Serviço: verificando…", 15, TEXT, true);
-        permissionStatus = text("● Permissão: verificando…", 15, TEXT, true);
-        coreStatus = text("● Núcleo Leo: verificando…", 15, TEXT, true);
-        diagnosticStatus = text("Diagnóstico: aguardando…", 12, MUTED, false);
-        serverStatus.setPadding(0, dp(9), 0, 0);
-        permissionStatus.setPadding(0, dp(9), 0, 0);
-        coreStatus.setPadding(0, dp(9), 0, 0);
-        diagnosticStatus.setPadding(0, dp(9), 0, 0);
-        card.addView(managerStatus);
-        card.addView(serverStatus);
-        card.addView(permissionStatus);
-        card.addView(coreStatus);
-        card.addView(diagnosticStatus);
-
-        TextView explanation = text(
-                "O Leo tenta primeiro o UserService completo do Shizuku. Em ROMs Xiaomi/MediaTek onde esse UserService não inicia, o Leo troca automaticamente para Shell Shizuku Compatível, sem bloquear a entrada.\n\n" +
-                "Sem root, o Shizuku precisa ser iniciado novamente depois que o celular reiniciar.",
-                13, MUTED, false
-        );
-        explanation.setPadding(0, dp(18), 0, dp(14));
-        card.addView(explanation);
-
-        card.addView(button("ABRIR SHIZUKU", v -> openShizuku()));
-        card.addView(spacer(9));
-        card.addView(button("SOLICITAR PERMISSÃO AO SHIZUKU", v -> requestShizukuPermission()));
-        card.addView(spacer(9));
-        card.addView(button("CONECTAR / TENTAR USER SERVICE", v -> connectCore()));
-        card.addView(spacer(9));
-        card.addView(button("VERIFICAR ESTADO", v -> refreshStatus()));
-        root.addView(card);
-
-        continueButton = button("ENTRAR NO LEO OPTIMAZER", v -> openMain());
-        LinearLayout.LayoutParams continueLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
-        continueLp.topMargin = dp(18);
-        root.addView(continueButton, continueLp);
-
-        TextView note = text(
-                "O botão Entrar é liberado quando o Shizuku está autorizado e o Leo possui um backend privilegiado: UserService completo ou Shell Compatível.",
-                12, MUTED, false
-        );
-        note.setPadding(0, dp(16), 0, 0);
-        root.addView(note);
-
-        setContentView(scroll);
+    private void buildUi(){
+        LinearLayout root=LeoUi.page(this,"Conexão","Prepare o Leo para jogar.",-1,true),panel=LeoUi.card(this);
+        panel.addView(new LeoUi.Glyph(this,"shield",LeoUi.CYAN),new LinearLayout.LayoutParams(dp(56),dp(56)));
+        coreStatus=LeoUi.text(this,"Verificando…",23,LeoUi.TEXT,true);panel.addView(coreStatus);panel.addView(LeoUi.gap(this,18));
+        managerStatus=LeoUi.text(this,"",14,LeoUi.MUTED,false);serverStatus=LeoUi.text(this,"",14,LeoUi.MUTED,false);permissionStatus=LeoUi.text(this,"",14,LeoUi.MUTED,false);
+        panel.addView(managerStatus);panel.addView(LeoUi.gap(this,12));panel.addView(serverStatus);panel.addView(LeoUi.gap(this,12));panel.addView(permissionStatus);root.addView(panel);root.addView(LeoUi.gap(this,20));
+        connectButton=LeoUi.button(this,"Conectar",true,v->{if(!ShizukuCore.isBinderAlive())openShizuku();else if(!ShizukuCore.hasPermission())requestShizukuPermission();else connectCore();});root.addView(connectButton);root.addView(LeoUi.gap(this,10));
+        continueButton=LeoUi.button(this,"Continuar",false,v->openMain());root.addView(continueButton);root.addView(LeoUi.gap(this,18));root.addView(LeoUi.text(this,"Sem root, inicie o Shizuku novamente após reiniciar o celular.",13,LeoUi.MUTED,false));root.addView(LeoUi.gap(this,24));
+        root.addView(LeoUi.link(this,"settings","Diagnóstico","Detalhes da conexão",v->startActivity(new Intent(this,DiagnosticsActivity.class))));
     }
-
-    private void refreshStatus() {
-        boolean installed = ShizukuCore.isManagerInstalled();
-        boolean alive = ShizukuCore.isBinderAlive();
-        boolean permission = ShizukuCore.hasPermission();
-        boolean ready = ShizukuCore.isReady();
-        boolean fallback = !ready && ShizukuCore.isFallbackReady();
-        boolean operational = ready || fallback;
-
-        managerStatus.setText(installed ? "● SHIZUKU INSTALADO" : "● SHIZUKU NÃO INSTALADO");
-        managerStatus.setTextColor(installed ? GOOD : BAD);
-
-        serverStatus.setText(alive ? "● SERVIÇO SHIZUKU EM EXECUÇÃO" : "● SERVIÇO SHIZUKU PARADO");
-        serverStatus.setTextColor(alive ? GOOD : WARN);
-
-        permissionStatus.setText(permission ? "● LEO AUTORIZADO NO SHIZUKU" : "● PERMISSÃO DO LEO PENDENTE");
-        permissionStatus.setTextColor(permission ? GOOD : BAD);
-
-        if (ready) {
-            int uid = ShizukuCore.getServiceUid();
-            coreStatus.setText(uid == 0 ? "● NÚCLEO LEO ATIVO • ROOT" : "● NÚCLEO LEO ATIVO • SHELL");
-            coreStatus.setTextColor(GOOD);
-            diagnosticStatus.setText("Diagnóstico: UserService conectado • " + ShizukuCore.runtimeDiagnostic());
-            diagnosticStatus.setTextColor(GOOD);
-        } else if (fallback) {
-            int uid = ShizukuCore.getBackendUid();
-            coreStatus.setText(uid == 0
-                    ? "● NÚCLEO LEO ATIVO • ROOT COMPAT"
-                    : "● NÚCLEO LEO ATIVO • SHELL COMPAT");
-            coreStatus.setTextColor(GOOD);
-            String error = ShizukuCore.getLastBindError();
-            diagnosticStatus.setText((error.isEmpty()
-                    ? "Diagnóstico: UserService opcional • Shell Compat ativo"
-                    : "Diagnóstico: " + error) + "\n" + ShizukuCore.runtimeDiagnostic());
-            diagnosticStatus.setTextColor(WARN);
-        } else if (permission && alive) {
-            boolean connecting = ShizukuCore.isBinding();
-            String error = ShizukuCore.getLastBindError();
-            coreStatus.setText(connecting ? "● NÚCLEO LEO CONECTANDO…" : "● NÚCLEO LEO NÃO CONECTADO");
-            coreStatus.setTextColor(connecting ? WARN : BAD);
-            diagnosticStatus.setText(error.isEmpty() ? "Diagnóstico: aguardando backend privilegiado" : "Diagnóstico: " + error);
-            diagnosticStatus.setTextColor(error.isEmpty() ? WARN : BAD);
-        } else {
-            coreStatus.setText("● NÚCLEO LEO AGUARDANDO SHIZUKU");
-            coreStatus.setTextColor(BAD);
-            String error = ShizukuCore.getLastBindError();
-            diagnosticStatus.setText(error.isEmpty() ? "Diagnóstico: —" : "Diagnóstico: " + error);
-            diagnosticStatus.setTextColor(error.isEmpty() ? MUTED : BAD);
-        }
-
-        continueButton.setEnabled(operational);
-        continueButton.setAlpha(operational ? 1f : 0.45f);
+    private void refreshStatus(){
+        boolean installed=ShizukuCore.isManagerInstalled(),alive=ShizukuCore.isBinderAlive(),permission=ShizukuCore.hasPermission(),ready=ShizukuCore.isOperational();
+        managerStatus.setText(installed?"✓  Shizuku instalado":"○  Instale o Shizuku");serverStatus.setText(alive?"✓  Serviço iniciado":"○  Inicie o serviço");permissionStatus.setText(permission?"✓  Acesso autorizado":"○  Autorize o acesso");
+        coreStatus.setText(ready?"Conectado":"Conexão pendente");coreStatus.setTextColor(ready?LeoUi.GREEN:LeoUi.WARN);connectButton.setText(!alive?"Abrir Shizuku":!permission?"Autorizar acesso":"Reconectar");continueButton.setEnabled(ready);continueButton.setAlpha(ready?1f:.45f);
     }
 
     private void openShizuku() {
@@ -226,7 +126,7 @@ public class ActivationActivity extends Activity {
         try {
             ShizukuCore.requestPermission();
             if (ShizukuCore.hasPermission()) {
-                Toast.makeText(this, "Permissão já concedida • backend Shell disponível", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Permissão concedida", Toast.LENGTH_SHORT).show();
                 handler.postDelayed(() -> {
                     ShizukuCore.retryBind();
                     refreshStatus();
@@ -251,7 +151,7 @@ public class ActivationActivity extends Activity {
         ShizukuCore.retryBind();
         Toast.makeText(this,
                 ShizukuCore.isFallbackReady()
-                        ? "Shell Compat já está disponível • tentando UserService completo"
+                        ? "Conexão disponível. Atualizando…"
                         : "Nova tentativa de conexão iniciada",
                 Toast.LENGTH_SHORT).show();
         refreshStatus();
@@ -263,7 +163,7 @@ public class ActivationActivity extends Activity {
             refreshStatus();
             return;
         }
-        startActivity(new Intent(this, MainActivity.class));
+        LeoUi.navigate(this,0);
     }
 
     private LinearLayout card() {

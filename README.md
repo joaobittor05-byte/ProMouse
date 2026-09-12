@@ -1,30 +1,20 @@
-# ProMouse — Rebuild v0.1
+# Leo Optimazer 1.0.0
 
-Nova base do ProMouse. O projeto anterior baseado em AccessibilityService e mapeamento fixo foi removido.
+Interface Android nativa baseada na Alpha18 (VSync Control).
 
-## Direção do projeto
+- Início: memória disponível real e atalhos.
+- Jogos: perfis compactos, ícones, abrir jogo e menu de ajustes.
+- Ajustes: conexão, dispositivo, versão e diagnóstico sob demanda.
+- RAM: limpeza e agendamento em segundos, minutos ou horas.
+- Frame Repeat: modo e VSync por jogo, com detalhes recolhidos.
 
-O ProMouse será um mapper configurável de mouse/teclado para touch. Nenhuma tecla ou posição de jogo vem pronta: o usuário adiciona o jogo e constrói o próprio mapa.
+Mantém os mecanismos de Shizuku, perfis, DPI, resolução, toque e Frame Repeat da Alpha18. Sem novos serviços gráficos ou animações contínuas.
 
-### Tela principal
-- status compacto: Status / Método / Mapper
-- lista grande e rolável de jogos
-- botão + para adicionar qualquer app/jogo instalado
-- menu ☰ com Ativação e Observações
+## Compilar
 
-### Ativação
-- ADB Wi-Fi: fluxo de preparação/pairing pela Depuração sem fio
-- ROOT: verificação real por `su -c id`
-- BShell: handshake por código com comandos separados para PC e Brevent
+JDK 17, Gradle 8.7, Android SDK 35. Execute `gradle :app:assembleDebug`.
+O workflow da branch gera `LeoOptimazer-1.0.0.apk`.
 
-### Overlay do jogo
-Ao abrir um jogo com sessão ativa e permissão de overlay, o ProMouse mostra uma bolha PM arrastável. Ela abre o widget inicial com:
-- FPS
-- TOQUE
-- ANALÓGICO
-- Configurações
+A Alpha18 foi assinada com uma chave de depuração indisponível nesta sessão. Uma nova assinatura exige reinstalação, que remove os dados locais do app. Registre os perfis antes de remover a versão anterior.
 
-Nesta v0.1 o overlay e o sistema de ativação são a fundação visual/estrutural. O backend privilegiado de captura HID e injeção touch ADB/Root será conectado em etapas seguintes; não há AccessibilityService nesta base.
-
-## Build
-Todo push em `main` gera o artefato `ProMouse-APK` no GitHub Actions.
+A compilação verifica integração e empacotamento. O funcionamento no aparelho com Shizuku precisa ser conferido no dispositivo.

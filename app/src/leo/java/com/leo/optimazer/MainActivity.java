@@ -33,12 +33,12 @@ import java.util.Comparator;
 import java.util.List;
 
 public class MainActivity extends Activity {
-    private static final int BG = Color.rgb(10, 13, 18);
-    private static final int CARD = Color.rgb(18, 24, 33);
-    private static final int CARD_2 = Color.rgb(24, 32, 43);
-    private static final int TEXT = Color.rgb(240, 246, 252);
-    private static final int MUTED = Color.rgb(155, 168, 184);
-    private static final int ACCENT = Color.rgb(99, 179, 255);
+    private static final int BG = LeoUi.BG;
+    private static final int CARD = LeoUi.CARD;
+    private static final int CARD_2 = LeoUi.SURFACE;
+    private static final int TEXT = LeoUi.TEXT;
+    private static final int MUTED = LeoUi.MUTED;
+    private static final int ACCENT = LeoUi.CYAN;
     private static final int GOOD = Color.rgb(96, 211, 148);
     private static final int BAD = Color.rgb(255, 112, 112);
     private static final int WARN = Color.rgb(255, 193, 92);
@@ -47,6 +47,8 @@ public class MainActivity extends Activity {
     private TextView activationStatus;
     private TextView ramInfo;
     private EditText intervalInput;
+    private TextView ramDetail,scheduleSummary;
+    private android.widget.Spinner intervalUnit;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,101 +69,29 @@ public class MainActivity extends Activity {
     }
 
     private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(20), dp(18), dp(40));
-        scroll.addView(root, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        root.addView(text("LEO OPTIMAZER", 27, TEXT, true));
-        TextView subtitle = text("Shizuku Core • DPI + resolução + Touch Engine universal por aplicativo", 14, MUTED, false);
-        subtitle.setPadding(0, dp(2), 0, dp(18));
-        root.addView(subtitle);
-
-        LinearLayout statusCard = card();
-        activationStatus = text("Verificando núcleo Shizuku…", 16, TEXT, true);
-        statusCard.addView(activationStatus);
-        statusCard.addView(spacer(10));
-        statusCard.addView(button("VERIFICAR SHIZUKU", v -> refreshActivationStatus()));
-        statusCard.addView(spacer(8));
-        statusCard.addView(button("GERENCIAR SHIZUKU", v -> startActivity(new Intent(this, ActivationActivity.class))));
-        TextView hint = text(
-                "400 DPI é o padrão de referência. DPI maior aumenta a resolução vinculada suavemente; DPI menor reduz. O Touch Engine é ativado só enquanto o app do perfil está em primeiro plano e restaura os ajustes ao sair.",
-                12, MUTED, false);
-        hint.setPadding(0, dp(10), 0, 0);
-        statusCard.addView(hint);
-        root.addView(statusCard);
-
-        root.addView(sectionTitle("LIMPEZA AUTOMÁTICA DE RAM"));
-        LinearLayout ramCard = card();
-        ramInfo = text("RAM: —", 14, TEXT, true);
-        ramCard.addView(ramInfo);
-        ramCard.addView(spacer(10));
-        ramCard.addView(text("A limpeza usa o núcleo Shizuku. Desligar a RAM automática não desliga DPI, resolução nem Touch Engine.", 12, MUTED, false));
-        ramCard.addView(spacer(10));
-        ramCard.addView(text("Intervalo em segundos (0 = desligado, mínimo 10s)", 12, MUTED, false));
-        intervalInput = editText("0");
-        intervalInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-        ramCard.addView(intervalInput, matchWrap());
-        ramCard.addView(spacer(8));
-        ramCard.addView(button("SALVAR INTERVALO", v -> saveIntervalAndStart()));
-        ramCard.addView(spacer(8));
-        ramCard.addView(button("LIMPAR RAM AGORA", v -> cleanRamNow()));
-        ramCard.addView(spacer(8));
-        ramCard.addView(button("DESLIGAR RAM AUTOMÁTICA", v -> stopOptimizer()));
-        root.addView(ramCard);
-
-        root.addView(sectionTitle("PERFIS INDIVIDUAIS"));
-        root.addView(button("+ ADICIONAR APLICATIVO", v -> chooseApplication()),
-                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
-        root.addView(spacer(10));
-
-        profilesContainer = new LinearLayout(this);
-        profilesContainer.setOrientation(LinearLayout.VERTICAL);
-        root.addView(profilesContainer, matchWrap());
-
-        TextView safety = text(
-                "Touch Engine universal: não usa Game Turbo, Game Booster ou HAL específico de fabricante. Resposta rápida usa o modo de desempenho AOSP e prioriza a maior taxa de atualização disponível. Arrasto linear aproveita o resampling nativo do Android quando a ROM o mantém ativo; o Leo não duplica o toque físico quando a ROM não permite monitoramento bruto.",
-                12, MUTED, false);
-        safety.setPadding(0, dp(16), 0, 0);
-        root.addView(safety);
-
-        setContentView(scroll);
+        boolean ram="ram".equals(getIntent().getStringExtra("screen"));
+        LinearLayout root=LeoUi.page(this,ram?"Memória RAM":"Meus jogos",ram?"Espaço para a próxima partida.":"Um perfil para cada partida.",ram?-1:1,ram);
+        activationStatus=text("",12,MUTED,true);activationStatus.setMinHeight(dp(48));activationStatus.setGravity(Gravity.CENTER_VERTICAL);
+        activationStatus.setFocusable(true);activationStatus.setOnClickListener(v->startActivity(new Intent(this,ActivationActivity.class)));root.addView(activationStatus);
+        if(ram){LinearLayout memory=card();memory.addView(text("MEMÓRIA LIVRE",11,MUTED,true));ramInfo=text("—",34,TEXT,true);memory.addView(ramInfo);
+            ramDetail=text("",12,MUTED,false);memory.addView(ramDetail);memory.addView(spacer(18));memory.addView(LeoUi.button(this,"Limpar agora",true,v->cleanRamNow()));root.addView(memory);root.addView(spacer(16));
+            LinearLayout schedule=card();schedule.addView(text("Limpeza automática",17,TEXT,true));scheduleSummary=text("",13,MUTED,false);scheduleSummary.setPadding(0,dp(6),0,dp(16));schedule.addView(scheduleSummary);
+            schedule.addView(button("Alterar agendamento",v->editSchedule()));root.addView(schedule);
+        }else{root.addView(LeoUi.button(this,"+  Adicionar jogo ou app",true,v->chooseApplication()));root.addView(spacer(18));profilesContainer=LeoUi.column(this);root.addView(profilesContainer,matchWrap());}
+    }
+    private void editSchedule(){
+        LinearLayout form=card();long sec=getSharedPreferences(MonitorService.PREFS,0).getLong(MonitorService.KEY_INTERVAL_SEC,0);
+        int unit=sec>0&&sec%3600==0?2:sec>0&&sec%60==0?1:0;long divisor=unit==2?3600:unit==1?60:1;
+        intervalInput=editText(String.valueOf(sec==0?60:sec/divisor));intervalInput.setInputType(InputType.TYPE_CLASS_NUMBER);intervalInput.setContentDescription("Intervalo da limpeza");form.addView(label("Limpar a cada"));form.addView(intervalInput);
+        intervalUnit=new android.widget.Spinner(this);intervalUnit.setAdapter(new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"Segundos","Minutos","Horas"}));intervalUnit.setSelection(unit);form.addView(intervalUnit,new LinearLayout.LayoutParams(-1,dp(52)));
+        form.addView(text("Intervalo mínimo: 10 segundos.",12,MUTED,false));
+        AlertDialog d=new AlertDialog.Builder(this).setTitle("Agendamento").setView(form).setPositiveButton("Salvar",null).setNeutralButton("Desativar",(a,b)->stopOptimizer()).setNegativeButton("Cancelar",null).create();
+        d.setOnShowListener(a->d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(saveIntervalAndStart())d.dismiss();}));d.show();
     }
 
-    private void refreshAll() {
-        SharedPreferences prefs = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE);
-        intervalInput.setText(String.valueOf(prefs.getLong(MonitorService.KEY_INTERVAL_SEC, 0L)));
-        refreshActivationStatus();
-        refreshMemory();
-        renderProfiles();
-    }
+    private void refreshAll(){refreshActivationStatus();refreshMemory();renderProfiles();}
 
-    private void refreshActivationStatus() {
-        boolean alive = ShizukuCore.isBinderAlive();
-        boolean permission = ShizukuCore.hasPermission();
-        boolean ready = ShizukuCore.isReady();
-
-        if (ready) {
-            int uid = ShizukuCore.getServiceUid();
-            activationStatus.setText(uid == 0 ? "● SHIZUKU ROOT ATIVO" : "● SHIZUKU SHELL ATIVO");
-            activationStatus.setTextColor(GOOD);
-        } else if (permission && alive) {
-            activationStatus.setText("● SHIZUKU AUTORIZADO • CONECTANDO NÚCLEO");
-            activationStatus.setTextColor(WARN);
-            ShizukuCore.bindUserService();
-        } else if (alive) {
-            activationStatus.setText("● SHIZUKU ATIVO • PERMISSÃO PENDENTE");
-            activationStatus.setTextColor(BAD);
-        } else {
-            activationStatus.setText("● SHIZUKU PARADO");
-            activationStatus.setTextColor(BAD);
-        }
-    }
+    private void refreshActivationStatus(){boolean ready=ShizukuCore.isOperational();activationStatus.setText(ready?"●  Conectado":"○  Toque para ativar a conexão");activationStatus.setTextColor(ready?GOOD:WARN);}
 
     private boolean requireShizuku() {
         if (!ShizukuCore.isBinderAlive() || !ShizukuCore.hasPermission()) {
@@ -181,35 +111,23 @@ public class MainActivity extends Activity {
         } catch (Throwable ignored) {}
     }
 
-    private void saveIntervalAndStart() {
-        try {
-            long sec = Long.parseLong(intervalInput.getText().toString().trim());
-            if (sec != 0 && sec < 10L) {
-                Toast.makeText(this, "Use 0 ou pelo menos 10 segundos", Toast.LENGTH_LONG).show();
-                return;
-            }
-            getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
-                    .putLong(MonitorService.KEY_INTERVAL_SEC, sec).apply();
-            ensureProfileMonitor();
-            if (sec > 0) {
-                if (!requireShizuku()) return;
-                Intent intent = new Intent(this, MonitorService.class);
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
-                Toast.makeText(this, "RAM automática: a cada " + sec + "s", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "RAM automática desligada • perfis continuam ativos", Toast.LENGTH_SHORT).show();
-            }
-        } catch (NumberFormatException e) {
-            Toast.makeText(this, "Intervalo inválido", Toast.LENGTH_SHORT).show();
-        }
+    private boolean saveIntervalAndStart(){
+        try{long unit=intervalUnit.getSelectedItemPosition()==2?3600:intervalUnit.getSelectedItemPosition()==1?60:1;
+            long sec=Math.multiplyExact(Long.parseLong(intervalInput.getText().toString().trim()),unit);
+            if(sec<10||sec>Long.MAX_VALUE/1000){intervalInput.setError("Use pelo menos 10 segundos");return false;}
+            if(!requireShizuku())return false;
+            getSharedPreferences(MonitorService.PREFS,0).edit().putLong(MonitorService.KEY_INTERVAL_SEC,sec).apply();
+            Intent i=new Intent(this,MonitorService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
+            refreshMemory();Toast.makeText(this,"Agendamento salvo",0).show();return true;
+        }catch(NumberFormatException|ArithmeticException e){intervalInput.setError("Digite um intervalo válido");return false;}
     }
 
     private void stopOptimizer() {
         getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
                 .putLong(MonitorService.KEY_INTERVAL_SEC, 0L).apply();
-        intervalInput.setText("0");
+        refreshMemory();
         ensureProfileMonitor();
-        Toast.makeText(this, "RAM automática desligada • monitor de perfis mantido", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Limpeza automática desativada", Toast.LENGTH_SHORT).show();
     }
 
     private void cleanRamNow() {
@@ -237,17 +155,12 @@ public class MainActivity extends Activity {
         }, "Leo-Shizuku-Ram").start();
     }
 
-    private void refreshMemory() {
-        SharedPreferences prefs = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE);
-        long available = availableMemoryMb();
-        long lastFreed = prefs.getLong(MonitorService.KEY_LAST_FREED_MB, 0L);
-        long last = prefs.getLong(MonitorService.KEY_LAST_CLEANUP, 0L);
-        String result = prefs.getString(MonitorService.KEY_LAST_CLEANUP_RESULT, "—");
-        String profileResult = prefs.getString(MonitorService.KEY_LAST_PROFILE_RESULT, "aguardando app com perfil");
-        String touch = prefs.getString(MonitorService.KEY_LAST_TOUCH_RESULT, "aguardando app");
-        String lastText = last == 0 ? "ainda não executada" : android.text.format.DateFormat.format("HH:mm:ss", last).toString();
-        ramInfo.setText("Disponível: " + available + " MB\nÚltima limpeza: " + lastText + " • Δ +" + lastFreed
-                + " MB\nRAM: " + result + "\nPerfil: " + profileResult + "\nTouch: " + touch);
+    private void refreshMemory(){
+        if(ramInfo==null)return;SharedPreferences p=getSharedPreferences(MonitorService.PREFS,0);
+        long last=p.getLong(MonitorService.KEY_LAST_CLEANUP,0),freed=p.getLong(MonitorService.KEY_LAST_FREED_MB,0),sec=p.getLong(MonitorService.KEY_INTERVAL_SEC,0);
+        ramInfo.setText(String.format(java.util.Locale.forLanguageTag("pt-BR"),"%.1f GB",availableMemoryMb()/1024.0));
+        ramDetail.setText(last==0?"Nenhuma limpeza realizada":p.getString(MonitorService.KEY_LAST_CLEANUP_RESULT,"").startsWith("ERRO")?"Última limpeza não concluída":"Última limpeza às "+android.text.format.DateFormat.format("HH:mm",last)+" · +"+freed+" MB");
+        scheduleSummary.setText(sec==0?"Desativada":"A cada "+(sec%3600==0?sec/3600+" h":sec%60==0?sec/60+" min":sec+" s"));
     }
 
     private long availableMemoryMb() {
@@ -270,7 +183,7 @@ public class MainActivity extends Activity {
             String[] labels = new String[launchable.size()];
             for (int i = 0; i < launchable.size(); i++) {
                 ApplicationInfo info = launchable.get(i);
-                labels[i] = pm.getApplicationLabel(info) + "\n" + info.packageName;
+                labels[i] = pm.getApplicationLabel(info).toString();
             }
             runOnUiThread(() -> new AlertDialog.Builder(this)
                     .setTitle("Escolher aplicativo")
@@ -304,19 +217,10 @@ public class MainActivity extends Activity {
         TextView preview = text("Calculando perfil…", 12, ACCENT, true);
         preview.setPadding(0, dp(8), 0, dp(5));
 
-        form.addView(label("Resolução-base @ 400 DPI — largura"));
-        form.addView(width);
-        form.addView(label("Resolução-base @ 400 DPI — altura"));
-        form.addView(height);
-        form.addView(label("DPI dedicada Android (400 = padrão)"));
-        form.addView(density);
-        form.addView(preview);
-        form.addView(enabled);
-        form.addView(fastTouch);
-        form.addView(linearDrag);
-        form.addView(label("Intensidade do Touch Engine (1–100)"));
-        form.addView(touchLevel);
-        form.addView(text("Resposta rápida usa recursos AOSP do Android via Shizuku e pode elevar temporariamente a prioridade de atualização da tela. Arrasto linear usa o resampling nativo do Android quando disponível. Nenhum Game Turbo, Game Booster ou controlador proprietário é alterado; tudo é restaurado ao sair do aplicativo.", 11, MUTED, false));
+        form.addView(enabled);form.addView(label("DPI do perfil"));form.addView(density);form.addView(preview);form.addView(fastTouch);form.addView(linearDrag);
+        LinearLayout advanced=LeoUi.column(this);advanced.setVisibility(View.GONE);
+        form.addView(spacer(12));form.addView(button("Mais ajustes  +",v->{boolean open=advanced.getVisibility()==View.VISIBLE;advanced.setVisibility(open?View.GONE:View.VISIBLE);((Button)v).setText(open?"Mais ajustes  +":"Menos ajustes  −");}));
+        advanced.addView(label("Largura-base (400 DPI)"));advanced.addView(width);advanced.addView(label("Altura-base (400 DPI)"));advanced.addView(height);advanced.addView(label("Intensidade do toque (1–100)"));advanced.addView(touchLevel);form.addView(advanced);form.addView(spacer(8));form.addView(text("Os recursos de toque dependem do Android e do jogo.",12,MUTED,false));
 
         TextWatcher watcher = new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -330,10 +234,9 @@ public class MainActivity extends Activity {
         density.addTextChangedListener(watcher);
         updatePreview(width, height, density, preview, dm, packageName);
 
-        new AlertDialog.Builder(this)
-                .setTitle(packageName)
-                .setView(form)
-                .setPositiveButton("SALVAR E APLICAR", (dialog, which) -> {
+        ScrollView scroll=new ScrollView(this);scroll.addView(form);
+        AlertDialog editor=new AlertDialog.Builder(this).setTitle(LeoUi.appName(this,packageName)).setView(scroll).setPositiveButton("Salvar",null).setNegativeButton("Cancelar",null).create();
+        editor.setOnShowListener(ignored->editor.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
                     try {
                         int w = Integer.parseInt(width.getText().toString().trim());
                         int h = Integer.parseInt(height.getText().toString().trim());
@@ -345,15 +248,13 @@ public class MainActivity extends Activity {
                         ProfileStore.Profile profile = new ProfileStore.Profile(
                                 packageName, w, h, d, true, enabled.isChecked(),
                                 fastTouch.isChecked(), linearDrag.isChecked(), level);
-                        applyAndSaveProfile(profile);
+                        applyAndSaveProfile(profile);editor.dismiss();
                     } catch (Exception e) {
                         Toast.makeText(this, "Use resolução 320–7680, DPI "
                                 + PerAppCompat.MIN_DEDICATED_DPI + "–" + PerAppCompat.MAX_DEDICATED_DPI
                                 + " e Touch 1–100", Toast.LENGTH_LONG).show();
                     }
-                })
-                .setNegativeButton("Cancelar", null)
-                .show();
+                }));editor.show();
     }
 
     private void updatePreview(EditText width, EditText height, EditText density,
@@ -369,9 +270,7 @@ public class MainActivity extends Activity {
             ProfileStore.Profile preview = new ProfileStore.Profile(packageName, w, h, normalized, true, true);
             PerAppCompat.Plan plan = PerAppCompat.build(preview, metrics);
             String adjusted = d == normalized ? "" : " • limitado para " + normalized;
-            output.setText(limits.label() + adjusted
-                    + "\nResolução vinculada pela DPI: " + linkedW + " × " + linkedH
-                    + "\nAplicação Android aproximada: " + plan.estimatedWidth + " × " + plan.estimatedHeight);
+            output.setText("Tela estimada: "+plan.estimatedWidth+" × "+plan.estimatedHeight+adjusted);
             output.setTextColor(d == normalized ? GOOD : WARN);
         } catch (Exception e) {
             output.setText("Digite resolução e DPI válidas para calcular o perfil.");
@@ -389,7 +288,7 @@ public class MainActivity extends Activity {
                 ensureProfileMonitor();
                 runOnUiThread(() -> {
                     renderProfiles();
-                    Toast.makeText(this, "Perfil salvo. Abra o aplicativo para ativar DPI e Touch Engine.\n" + plan.summary, Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Perfil salvo. Abra o jogo para usar os ajustes.", Toast.LENGTH_LONG).show();
                 });
             } catch (Exception e) {
                 String message = safeMessage(e);
@@ -430,61 +329,25 @@ public class MainActivity extends Activity {
         }, "Leo-Remove-Profile").start();
     }
 
-    private void renderProfiles() {
-        profilesContainer.removeAllViews();
-        List<ProfileStore.Profile> profiles = ProfileStore.all(this);
-        if (profiles.isEmpty()) {
-            profilesContainer.addView(text("Nenhum perfil criado.", 14, MUTED, false));
-            return;
-        }
-
-        PackageManager pm = getPackageManager();
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        for (ProfileStore.Profile profile : profiles) {
-            LinearLayout box = card();
-            String name = profile.packageName;
-            try {
-                ApplicationInfo info = pm.getApplicationInfo(profile.packageName, 0);
-                name = pm.getApplicationLabel(info).toString();
-            } catch (Exception ignored) {}
-
-            PerAppCompat.Plan plan = PerAppCompat.build(profile, metrics);
-            box.addView(text(name, 16, TEXT, true));
-            box.addView(text(
-                    profile.packageName
-                            + "\nBase: " + profile.width + " × " + profile.height + " @ 400 DPI"
-                            + "\nDPI dedicada: " + profile.density
-                            + "\nEfetivo aproximado: " + plan.estimatedWidth + " × " + plan.estimatedHeight
-                            + "\nResposta rápida: " + (profile.fastTouch ? "ON" : "OFF")
-                            + " • Arrasto linear: " + (profile.linearDrag ? "ON" : "OFF")
-                            + " • Intensidade: " + profile.touchLevel
-                            + "\nEstado: " + (profile.enabled ? "ATIVO AO ABRIR O APP" : "PAUSADO"),
-                    12, MUTED, false));
-            box.addView(spacer(10));
-
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.addView(button("EDITAR", v -> editProfile(profile.packageName)), new LinearLayout.LayoutParams(0, dp(44), 1f));
-            row.addView(spacerHorizontal(8));
-            row.addView(button("REAPLICAR", v -> reapplyProfile(profile)), new LinearLayout.LayoutParams(0, dp(44), 1f));
-            box.addView(row);
-            box.addView(spacer(8));
-            box.addView(button("REMOVER E RESTAURAR PADRÃO", v -> new AlertDialog.Builder(this)
-                    .setTitle("Remover perfil?")
-                    .setMessage("Resolução, DPI e Touch Engine de " + profile.packageName + " serão restaurados.")
-                    .setPositiveButton("Remover", (d, w) -> removeProfile(profile))
-                    .setNegativeButton("Cancelar", null).show()));
-
-            profilesContainer.addView(box);
-            profilesContainer.addView(spacer(9));
-        }
+    private void renderProfiles(){
+        if(profilesContainer==null)return;profilesContainer.removeAllViews();List<ProfileStore.Profile> profiles=ProfileStore.all(this);
+        if(profiles.isEmpty()){LinearLayout empty=card();empty.addView(new LeoUi.Glyph(this,"game",ACCENT),new LinearLayout.LayoutParams(dp(64),dp(64)));
+            empty.addView(text("Sua próxima partida começa aqui",17,TEXT,true));empty.addView(spacer(8));empty.addView(text("Adicione um jogo para personalizar tela e toque.",13,MUTED,false));profilesContainer.addView(empty);return;}
+        for(ProfileStore.Profile profile:profiles){String name=LeoUi.appName(this,profile.packageName);LinearLayout box=card(),heading=LeoUi.row(this);
+            android.widget.ImageView icon=new android.widget.ImageView(this);try{icon.setImageDrawable(getPackageManager().getApplicationIcon(profile.packageName));}catch(Exception ignored){}
+            heading.addView(icon,new LinearLayout.LayoutParams(dp(44),dp(44)));LinearLayout labels=LeoUi.column(this);labels.setPadding(dp(12),0,0,0);labels.addView(text(name,17,TEXT,true));labels.addView(text(profile.density+" DPI · "+(profile.enabled?"Perfil habilitado":"Pausado"),12,MUTED,false));heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));box.addView(heading);box.addView(spacer(16));
+            LinearLayout actions=LeoUi.row(this);actions.addView(LeoUi.button(this,"Jogar",true,v->{Intent i=getPackageManager().getLaunchIntentForPackage(profile.packageName);if(i!=null)startActivity(i);else Toast.makeText(this,"Aplicativo não encontrado",0).show();}),new LinearLayout.LayoutParams(0,-2,1));actions.addView(spacerHorizontal(10));
+            actions.addView(button("Ajustar",v->new AlertDialog.Builder(this).setTitle(name).setItems(new String[]{"Editar perfil","Frame Repeat","Reaplicar perfil","Remover perfil"},(d,n)->{
+                if(n==0)editProfile(profile.packageName);else if(n==1)startActivity(new Intent(this,FrameRepeatActivity.class).putExtra("package",profile.packageName));else if(n==2)reapplyProfile(profile);
+                else new AlertDialog.Builder(this).setTitle("Remover perfil?").setMessage("Os ajustes de "+name+" serão restaurados.").setPositiveButton("Remover",(x,w)->removeProfile(profile)).setNegativeButton("Cancelar",null).show();
+            }).setNegativeButton("Fechar",null).show()),new LinearLayout.LayoutParams(0,-2,1));box.addView(actions);profilesContainer.addView(box);profilesContainer.addView(spacer(12));}
     }
 
     private CheckBox check(String label, boolean checked) {
         CheckBox box = new CheckBox(this);
         box.setText(label);
         box.setTextColor(TEXT);
-        box.setChecked(checked);
+        box.setChecked(checked);box.setMinHeight(dp(48));box.setButtonTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         return box;
     }
 
@@ -512,39 +375,9 @@ public class MainActivity extends Activity {
         return tv;
     }
 
-    private LinearLayout card() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(15), dp(15), dp(15), dp(15));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD);
-        bg.setCornerRadius(dp(16));
-        bg.setStroke(dp(1), CARD_2);
-        layout.setBackground(bg);
-        layout.setElevation(dp(2));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp(4);
-        layout.setLayoutParams(lp);
-        return layout;
-    }
+    private LinearLayout card(){return LeoUi.card(this);}
 
-    private Button button(String label, View.OnClickListener listener) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setTextColor(TEXT);
-        b.setTextSize(12);
-        b.setAllCaps(false);
-        b.setGravity(Gravity.CENTER);
-        b.setPadding(dp(8), 0, dp(8), 0);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD_2);
-        bg.setCornerRadius(dp(12));
-        bg.setStroke(dp(1), Color.rgb(47, 69, 91));
-        b.setBackground(bg);
-        b.setOnClickListener(listener);
-        return b;
-    }
+    private Button button(String label,View.OnClickListener listener){return LeoUi.button(this,label,false,listener);}
 
     private EditText editText(String value) {
         EditText e = new EditText(this);

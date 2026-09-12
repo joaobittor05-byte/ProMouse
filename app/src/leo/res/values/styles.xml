@@ -3,10 +3,11 @@
     <style name="Theme.LeoOptimazer" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:navigationBarColor">#0A0D12</item>
-        <item name="android:statusBarColor">#0A0D12</item>
+        <item name="android:navigationBarColor">#080C12</item>
+        <item name="android:statusBarColor">#080C12</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:colorAccent">#63B3FF</item>
-        <item name="android:windowBackground">#0A0D12</item>
+        <item name="android:colorAccent">#65E4EF</item>
+        <item name="android:windowBackground">#080C12</item>
+        <item name="android:colorBackground">#101923</item>
     </style>
 </resources>

@@ -1,158 +1,47 @@
 package com.leo.optimazer;
-
-import android.app.Activity;
+import android.app.*;
 import android.content.Intent;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
-import android.os.Build;
-import android.os.Bundle;
-import android.view.Gravity;
+import android.os.*;
 import android.view.View;
-import android.widget.ArrayAdapter;
-import android.widget.CheckBox;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.Spinner;
-import android.widget.TextView;
-import android.widget.Toast;
-
+import android.widget.*;
 import java.util.List;
 
 public class FrameRepeatActivity extends Activity {
-    private static final int BG = Color.rgb(7, 10, 17);
-    private static final int CARD = Color.rgb(16, 22, 34);
-    private static final int TEXT = Color.rgb(244, 248, 255);
-    private static final int MUTED = Color.rgb(150, 164, 188);
-    private static final int CYAN = Color.rgb(61, 214, 255);
-
-    @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); render(); }
-    @Override protected void onResume() { super.onResume(); render(); }
-
-    private void render() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(22), dp(18), dp(36));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
-
-        root.addView(text("FRAME REPEAT", 28, TEXT, true));
-        TextView sub = text("A → A → B → B • controle de cadência", 14, CYAN, true);
-        sub.setPadding(0, dp(2), 0, dp(8)); root.addView(sub);
-        root.addView(text("Agora o VSync do pipeline do Leo pode ficar em Automático, Ligado ou Desligado/Unlocked. Isso não desliga o VSync global do Android.", 12, MUTED, false));
-
-        List<ProfileStore.Profile> profiles = ProfileStore.all(this);
-        if (profiles.isEmpty()) {
-            LinearLayout empty = card();
-            empty.addView(text("Nenhum perfil de aplicativo criado ainda.", 15, TEXT, true));
-            TextView hint = text("Abra Otimização e Perfis, adicione o jogo e depois volte aqui.", 12, MUTED, false);
-            hint.setPadding(0, dp(7), 0, 0); empty.addView(hint);
-            root.addView(space(16)); root.addView(empty);
-            setContentView(scroll); return;
+    private String expanded;
+    protected void onCreate(Bundle b){super.onCreate(b);expanded=b==null?getIntent().getStringExtra("package"):b.getString("expanded");}
+    protected void onResume(){super.onResume();render();}
+    protected void onSaveInstanceState(Bundle b){b.putString("expanded",expanded);super.onSaveInstanceState(b);}
+    private void render(){
+        LinearLayout root=LeoUi.page(this,"Frame Repeat","Cadência sob seu controle.",-1,true);
+        List<ProfileStore.Profile> profiles=ProfileStore.all(this);
+        if(profiles.isEmpty()){LinearLayout empty=LeoUi.card(this);empty.addView(LeoUi.text(this,"Escolha seu primeiro jogo",18,LeoUi.TEXT,true));empty.addView(LeoUi.gap(this,8));empty.addView(LeoUi.text(this,"Crie um perfil para ajustar modo e VSync.",14,LeoUi.MUTED,false));empty.addView(LeoUi.gap(this,18));empty.addView(LeoUi.button(this,"Adicionar jogo",true,v->LeoUi.navigate(this,1)));root.addView(empty);}
+        for(ProfileStore.Profile profile:profiles){String pkg=profile.packageName;LinearLayout card=LeoUi.card(this);
+            Switch toggle=new Switch(this);toggle.setText(LeoUi.appName(this,pkg));toggle.setTextSize(17);toggle.setTextColor(LeoUi.TEXT);toggle.setMinHeight(LeoUi.dp(this,52));toggle.setSwitchPadding(LeoUi.dp(this,16));
+            toggle.setThumbTintList(new android.content.res.ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{LeoUi.CYAN,LeoUi.MUTED}));
+            toggle.setChecked(FrameRepeatPrefs.isEnabled(this,pkg,true));card.addView(toggle);
+            String mode=FrameRepeatPrefs.mode(this,pkg),vsync=FrameRepeatPrefs.vsync(this,pkg);
+            card.addView(LeoUi.text(this,profile.enabled?FrameRepeatPrefs.friendlyName(mode)+" · VSync "+friendlyVsync(vsync):"Perfil pausado",12,LeoUi.MUTED,false));card.addView(LeoUi.gap(this,14));
+            LinearLayout controls=LeoUi.column(this);controls.setVisibility(pkg.equals(expanded)?View.VISIBLE:View.GONE);
+            card.addView(LeoUi.button(this,"Ajustar modo e VSync",false,v->{boolean show=controls.getVisibility()!=View.VISIBLE;controls.setVisibility(show?View.VISIBLE:View.GONE);expanded=show?pkg:null;}));
+            controls.addView(LeoUi.gap(this,12));controls.addView(LeoUi.link(this,"frame","Modo",FrameRepeatPrefs.friendlyName(mode),v->choose(pkg,false)));
+            controls.addView(LeoUi.gap(this,8));controls.addView(LeoUi.link(this,"settings","VSync",friendlyVsync(vsync),v->choose(pkg,true)));card.addView(controls);root.addView(card);root.addView(LeoUi.gap(this,12));
+            toggle.setOnCheckedChangeListener((b,enabled)->{FrameRepeatPrefs.setEnabled(this,pkg,enabled);applyPreference();});
         }
-
-        String[] labels = {"Competitivo", "Qualidade", "Suave"};
-        String[] vsyncLabels = {"Automático", "Ligado", "Desligado / Unlocked"};
-        for (ProfileStore.Profile profile : profiles) {
-            root.addView(space(14));
-            LinearLayout box = card();
-            box.addView(text(profile.packageName, 15, TEXT, true));
-
-            boolean enabled = FrameRepeatPrefs.isEnabled(this, profile.packageName, true);
-            CheckBox toggle = new CheckBox(this);
-            toggle.setText("Ativar Frame Repeat");
-            toggle.setTextColor(TEXT);
-            toggle.setChecked(enabled);
-            toggle.setPadding(0, dp(8), 0, dp(6));
-            box.addView(toggle);
-
-            TextView modeLabel = text("Modo", 12, MUTED, true);
-            modeLabel.setPadding(0, dp(4), 0, dp(4)); box.addView(modeLabel);
-            Spinner spinner = new Spinner(this);
-            spinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
-            String current = FrameRepeatPrefs.mode(this, profile.packageName);
-            spinner.setSelection(FrameRepeatPrefs.MODE_QUALITY.equals(current) ? 1 : FrameRepeatPrefs.MODE_SMOOTH.equals(current) ? 2 : 0);
-            box.addView(spinner, new LinearLayout.LayoutParams(-1, dp(52)));
-
-            TextView modeHelp = text(modeDescription(current), 12, MUTED, false);
-            modeHelp.setPadding(0, dp(5), 0, dp(8)); box.addView(modeHelp);
-
-            TextView vsyncLabel = text("VSync do Frame Repeat", 12, MUTED, true);
-            vsyncLabel.setPadding(0, dp(4), 0, dp(4)); box.addView(vsyncLabel);
-            Spinner vsyncSpinner = new Spinner(this);
-            vsyncSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, vsyncLabels));
-            String currentVsync = FrameRepeatPrefs.vsync(this, profile.packageName);
-            vsyncSpinner.setSelection(FrameRepeatPrefs.VSYNC_ON.equals(currentVsync) ? 1 : FrameRepeatPrefs.VSYNC_OFF.equals(currentVsync) ? 2 : 0);
-            box.addView(vsyncSpinner, new LinearLayout.LayoutParams(-1, dp(52)));
-
-            TextView vsyncHelp = text(vsyncDescription(currentVsync), 12, MUTED, false);
-            vsyncHelp.setPadding(0, dp(5), 0, 0); box.addView(vsyncHelp);
-
-            toggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                FrameRepeatPrefs.setEnabled(this, profile.packageName, isChecked);
-                ensureFrameService();
-                Toast.makeText(this, isChecked ? "Frame Repeat ativado" : "Frame Repeat desativado", Toast.LENGTH_SHORT).show();
-            });
-            spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                boolean first = true;
-                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                    String mode = position == 1 ? FrameRepeatPrefs.MODE_QUALITY : position == 2 ? FrameRepeatPrefs.MODE_SMOOTH : FrameRepeatPrefs.MODE_COMPETITIVE;
-                    FrameRepeatPrefs.setMode(FrameRepeatActivity.this, profile.packageName, mode);
-                    modeHelp.setText(modeDescription(mode));
-                    ensureFrameService();
-                    if (!first) Toast.makeText(FrameRepeatActivity.this, "Modo: " + FrameRepeatPrefs.friendlyName(mode), Toast.LENGTH_SHORT).show();
-                    first = false;
-                }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-            });
-            vsyncSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                boolean first = true;
-                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                    String value = position == 1 ? FrameRepeatPrefs.VSYNC_ON : position == 2 ? FrameRepeatPrefs.VSYNC_OFF : FrameRepeatPrefs.VSYNC_AUTO;
-                    FrameRepeatPrefs.setVsync(FrameRepeatActivity.this, profile.packageName, value);
-                    vsyncHelp.setText(vsyncDescription(value));
-                    ensureFrameService();
-                    if (!first) Toast.makeText(FrameRepeatActivity.this, "VSync: " + FrameRepeatPrefs.friendlyVsync(value), Toast.LENGTH_SHORT).show();
-                    first = false;
-                }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-            });
-            root.addView(box);
-        }
-
-        TextView footer = text("Compatibilidade por capacidade: Snapdragon, MediaTek, Exynos, Tensor, Unisoc e outros SoCs Android.", 11, MUTED, false);
-        footer.setGravity(Gravity.CENTER); footer.setPadding(0, dp(20), 0, 0); root.addView(footer);
-        setContentView(scroll);
-        ensureFrameService();
+        root.addView(LeoUi.gap(this,8));root.addView(LeoUi.button(this,"Como funciona",false,v->new AlertDialog.Builder(this).setTitle("Frame Repeat")
+            .setMessage("Repete quadros existentes; não cria novos quadros de movimento.\n\nCompetitivo: prioriza a resposta.\nQualidade: busca uma cadência regular.\nSuave: busca estabilidade visual.\n\nO VSync controla a política do Leo. Desligado libera o limite mínimo imposto pelo Leo; não desliga o VSync global do Android. O resultado depende do aparelho e do jogo.").setPositiveButton("Entendi",null).show()));
     }
-
-    private String modeDescription(String mode) {
-        String n = FrameRepeatPrefs.normalizeMode(mode);
-        if (FrameRepeatPrefs.MODE_QUALITY.equals(n)) return "Qualidade: procura múltiplo inteiro de FPS/Hz para cadência mais limpa.";
-        if (FrameRepeatPrefs.MODE_SMOOTH.equals(n)) return "Suave: evita repetição excessiva e busca estabilidade visual.";
-        return "Competitivo: usa o maior refresh útil e prioriza resposta/latência.";
+    private String friendlyVsync(String s){return FrameRepeatPrefs.VSYNC_ON.equals(s)?"Ligado":FrameRepeatPrefs.VSYNC_OFF.equals(s)?"Desligado":"Automático";}
+    private void choose(String pkg,boolean vsync){
+        String[] values=vsync?new String[]{FrameRepeatPrefs.VSYNC_AUTO,FrameRepeatPrefs.VSYNC_ON,FrameRepeatPrefs.VSYNC_OFF}:new String[]{FrameRepeatPrefs.MODE_COMPETITIVE,FrameRepeatPrefs.MODE_QUALITY,FrameRepeatPrefs.MODE_SMOOTH};
+        String[] labels=vsync?new String[]{"Automático","Ligado","Desligado"}:new String[]{"Competitivo","Qualidade","Suave"};
+        String current=vsync?FrameRepeatPrefs.vsync(this,pkg):FrameRepeatPrefs.mode(this,pkg);int selected=values[1].equals(current)?1:values[2].equals(current)?2:0;
+        new AlertDialog.Builder(this).setTitle(vsync?"VSync do Leo":"Modo da partida").setSingleChoiceItems(labels,selected,(d,n)->{
+            if(vsync)FrameRepeatPrefs.setVsync(this,pkg,values[n]);else FrameRepeatPrefs.setMode(this,pkg,values[n]);expanded=pkg;d.dismiss();applyPreference();render();
+        }).setNegativeButton("Cancelar",null).show();
     }
-
-    private String vsyncDescription(String value) {
-        String n = FrameRepeatPrefs.normalizeVsync(value);
-        if (FrameRepeatPrefs.VSYNC_ON.equals(n)) return "Ligado: o Leo trava min/peak no refresh escolhido para manter cadência estável.";
-        if (FrameRepeatPrefs.VSYNC_OFF.equals(n)) return "Desligado / Unlocked: o Leo não força o lock mínimo de refresh; prioriza liberdade de apresentação e menor latência percebida.";
-        return "Automático: Competitivo tende a Unlocked; Qualidade tende a VSync ligado; Suave usa sincronismo adaptativo.";
+    private void applyPreference(){
+        if(!ShizukuCore.isOperational()){Toast.makeText(this,"Preferência salva. Ative a conexão para aplicar.",0).show();return;}
+        try{Intent i=new Intent(this,FrameRepeatService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
+        catch(RuntimeException e){Toast.makeText(this,"Preferência salva. Verifique a conexão.",0).show();}
     }
-
-    private void ensureFrameService() {
-        try {
-            Intent intent = new Intent(this, FrameRepeatService.class);
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
-        } catch (Throwable ignored) {}
-    }
-
-    private LinearLayout card() {
-        LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setPadding(dp(16), dp(16), dp(16), dp(16));
-        GradientDrawable bg = new GradientDrawable(); bg.setColor(CARD); bg.setCornerRadius(dp(18)); bg.setStroke(dp(1), Color.rgb(35, 49, 72)); l.setBackground(bg); return l;
-    }
-    private TextView text(String s, int sp, int color, boolean bold) { TextView v = new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(color); if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD); return v; }
-    private View space(int h) { View v = new View(this); v.setLayoutParams(new LinearLayout.LayoutParams(1, dp(h))); return v; }
-    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 }
